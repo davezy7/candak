@@ -41,10 +41,3 @@ export function initTheme() {
     }
   });
 }
-
-export function toggleTheme() {
-  theme.update((curr) => {
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    return isDark ? 'light' : 'dark';
-  });
-}

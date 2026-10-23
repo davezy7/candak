@@ -3,7 +3,6 @@
   import { GetDownloads, OpenFolder, GetDefaultDownloadDir, SetClipboardWatching } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
   import { formatBytes, formatSpeed } from './lib/formatters.js';
-  import { theme, toggleTheme } from './lib/theme.js';
   import DownloadItem from './lib/DownloadItem.svelte';
   import AddDownloadModal from './lib/AddDownloadModal.svelte';
   import HistoryModal from './lib/HistoryModal.svelte';
@@ -11,21 +10,14 @@
   import { 
     Download, 
     Plus, 
-    Search, 
     Folder, 
     Settings, 
     ArrowDown,
-    X,
-    Sun,
-    Moon,
-    ExternalLink,
-    CheckCircle2
+    ExternalLink
   } from 'lucide-svelte';
 
   let downloads = [];
   let filter = 'all'; // 'all' | 'downloading' | 'completed' | 'paused'
-  let searchQuery = '';
-  let showSearchBar = false;
   let isAddModalOpen = false;
   let isHistoryModalOpen = false;
   let isSettingsModalOpen = false;
@@ -34,7 +26,6 @@
   let isStandalonePrompt = false;
   let activeTab = 'downloads'; // 'downloads' | 'files'
   let defaultDownloadDir = '';
-  let currentTheme = 'system';
   let unlistenProgress = null;
   let unlistenStatus = null;
   let unlistenDeleted = null;
@@ -42,10 +33,6 @@
   let unlistenPromptMode = null;
 
   onMount(async () => {
-    theme.subscribe((t) => {
-      currentTheme = t;
-    });
-
     try {
       const savedDir = localStorage.getItem('candak_custom_download_dir');
       if (savedDir) {
@@ -168,11 +155,6 @@
       if (filter === 'completed' && d.status !== 'completed') return false;
       if (filter === 'paused' && d.status !== 'paused') return false;
     }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return d.filename.toLowerCase().includes(q) || d.url.toLowerCase().includes(q);
-    }
     return true;
   });
 </script>
@@ -207,30 +189,6 @@
 
       <!-- Header Action Buttons -->
       <div class="flex items-center gap-2" style="--wails-draggable:no-drag">
-        <!-- Quick Theme Toggle -->
-        <button 
-          on:click={toggleTheme}
-          class="p-2.5 rounded-full text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)] transition"
-          title="Toggle Light / Dark mode"
-          aria-label="Toggle Light / Dark mode"
-        >
-          {#if currentTheme === 'dark'}
-            <Sun size={19} strokeWidth={2.2} />
-          {:else}
-            <Moon size={19} strokeWidth={2.2} />
-          {/if}
-        </button>
-
-        <!-- Search Toggle -->
-        <button 
-          on:click={() => showSearchBar = !showSearchBar}
-          class="p-2.5 rounded-full text-[var(--color-text)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)] shadow-2xs transition"
-          title="Search downloads"
-          aria-label="Search downloads"
-        >
-          <Search size={20} strokeWidth={2.2} />
-        </button>
-
         <!-- New Download Button -->
         <button 
           on:click={() => { initialUrlForModal = ''; isAddModalOpen = true; }}
@@ -242,27 +200,6 @@
         </button>
       </div>
     </div>
-
-    <!-- Optional Search Input Field -->
-    {#if showSearchBar}
-      <div class="mt-3 relative" style="--wails-draggable:no-drag">
-        <input 
-          type="text" 
-          bind:value={searchQuery}
-          placeholder="Filter by filename or URL..."
-          class="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl pl-10 pr-9 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-secondary)] focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 transition shadow-xs"
-        />
-        <Search size={16} class="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-secondary)]" />
-        {#if searchQuery}
-          <button 
-            on:click={() => searchQuery = ''}
-            class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-secondary)] hover:text-[var(--color-text)]"
-          >
-            <X size={15} />
-          </button>
-        {/if}
-      </div>
-    {/if}
 
     <!-- Tab Specific Header Row -->
     {#if activeTab === 'downloads'}
@@ -347,17 +284,17 @@
           {#if activeTab === 'files'}
             No downloaded files completed yet
           {:else}
-            {searchQuery ? "No matching downloads" : "No downloads in this view"}
+            No downloads in this view
           {/if}
         </h3>
         <p class="text-xs text-[var(--color-secondary)] max-w-xs mt-1">
           {#if activeTab === 'files'}
             Completed downloads will be listed here with quick-access actions.
           {:else}
-            {searchQuery ? "Try refining your search query." : "Click '+ Add' to start your first file download."}
+            Click '+ Add' to start your first file download.
           {/if}
         </p>
-        {#if !searchQuery && activeTab === 'downloads'}
+        {#if activeTab === 'downloads'}
           <button 
             on:click={() => isAddModalOpen = true}
             class="mt-4 px-5 py-2.5 text-xs font-bold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-full shadow-sm hover:shadow transition"
