@@ -9,5 +9,9 @@
   "author": {
     "name": "devin",
     "email": "devin.devapp@gmail.com"
+  },
+  "info": {
+    "productVersion": "0.1.0",
+    "productName": "Candak"
   }
 }

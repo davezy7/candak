@@ -1,8 +1,10 @@
 # Binaries
 build/bin/
+release/
 *.exe
 *.app
 candak
+*.pem
 
 # Node
 node_modules/
