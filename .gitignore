@@ -31,3 +31,8 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# Internal docs
+GLOSSARY.md
+docs/adr/
+adr/
