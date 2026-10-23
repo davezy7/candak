@@ -34,6 +34,10 @@ export function OpenFile(arg1) {
   return window['go']['main']['App']['OpenFile'](arg1);
 }
 
+export function OpenFolder(arg1) {
+  return window['go']['main']['App']['OpenFolder'](arg1);
+}
+
 export function PauseDownload(arg1) {
   return window['go']['main']['App']['PauseDownload'](arg1);
 }

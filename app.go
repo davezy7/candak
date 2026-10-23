@@ -181,3 +181,11 @@ func (a *App) OpenFile(filePath string) error {
 func (a *App) ShowInFolder(filePath string) error {
 	return a.opener.ShowInFolder(filePath)
 }
+
+// OpenFolder opens a directory in the native file manager (Finder / Explorer).
+func (a *App) OpenFolder(folderPath string) error {
+	if folderPath == "" {
+		folderPath = a.GetDefaultDownloadDir()
+	}
+	return a.opener.OpenFile(folderPath)
+}

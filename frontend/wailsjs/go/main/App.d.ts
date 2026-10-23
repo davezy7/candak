@@ -18,6 +18,8 @@ export function GetURLHistory():Promise<Array<models.URLHistoryItem>>;
 
 export function OpenFile(arg1:string):Promise<void>;
 
+export function OpenFolder(arg1:string):Promise<void>;
+
 export function PauseDownload(arg1:string):Promise<void>;
 
 export function ProbeURL(arg1:string):Promise<models.ProbeResult>;
