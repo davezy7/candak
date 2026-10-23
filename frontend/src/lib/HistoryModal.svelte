@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { GetURLHistory, ClearURLHistory } from '@wails/go/main/App.js';
   import { formatDate } from './formatters.js';
-  import { X, History, Trash2, DownloadCloud, Copy, Check, ExternalLink } from 'lucide-svelte';
+  import { X, History, Trash2, DownloadCloud, Copy, Check } from 'lucide-svelte';
 
   export let isOpen = false;
   export let onClose = () => {};
@@ -50,14 +50,27 @@
     onSelectUrl(url);
     onClose();
   }
+
+  function handleKeydown(event) {
+    if (event.key === 'Escape') {
+      onClose();
+    }
+  }
 </script>
 
 {#if isOpen}
   <div 
     class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    role="presentation"
     on:click|self={onClose}
+    on:keydown={handleKeydown}
   >
-    <div class="bg-slate-900 border border-slate-700/80 rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[80vh]">
+    <div 
+      class="bg-slate-900 border border-slate-700/80 rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[80vh]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="history-modal-title"
+    >
       <!-- Header -->
       <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
         <div class="flex items-center gap-2.5">
@@ -65,7 +78,7 @@
             <History size={18} />
           </div>
           <div>
-            <h3 class="font-semibold text-slate-100 text-sm">URL History</h3>
+            <h3 id="history-modal-title" class="font-semibold text-slate-100 text-sm">URL History</h3>
             <p class="text-xs text-slate-400">Past download targets recorded in SQLite database</p>
           </div>
         </div>
@@ -82,6 +95,7 @@
           <button 
             on:click={onClose}
             class="text-slate-400 hover:text-slate-200 p-1 rounded-md hover:bg-slate-800 transition"
+            aria-label="Close dialog"
           >
             <X size={18} />
           </button>
@@ -122,6 +136,7 @@
                   on:click={() => copyToClipboard(item)}
                   class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-md border border-transparent hover:border-slate-700 transition"
                   title="Copy URL"
+                  aria-label="Copy URL"
                 >
                   {#if copiedId === item.id}
                     <Check size={14} class="text-emerald-400" />

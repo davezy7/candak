@@ -1,112 +1,85 @@
 # Candak - Download Manager Desktop App
 
-A high-performance, multi-threaded desktop download manager built with:
-- **Go 1.26+**
-- **Wails v2** (native OS desktop wrapper with zero Chromium bloat)
-- **Svelte 5 + Tailwind CSS v4** (instant reactive UI with virtually no boilerplate)
-- **modernc.org/sqlite** (Pure Go SQLite driver without CGO, tracking chunk offsets, download resumes, and URL history)
+A multi-threaded desktop download manager engineered in **Go** and **Wails v2**, featuring an instant **Svelte 5 + Tailwind CSS v4** interface and pure-Go **SQLite** persistence (`modernc.org/sqlite`).
+
+Designed strictly following **SOLID Principles**, **Clean Architecture**, and **Go Best Practices**.
 
 ---
 
-## Architecture Overview
+## Architecture & SOLID Highlights
 
-```
-candak/
-├── app.go                      # Wails Go application layer (exposed methods to Svelte)
-├── main.go                     # Entrypoint & desktop window configuration
-├── wails.json                  # Wails build & dev configuration
-├── go.mod / go.sum             # Go module dependencies
-├── internal/
-│   ├── models/models.go        # Data structures (Download, Chunk, ProgressEvent, etc.)
-│   ├── db/
-│   │   ├── db.go               # SQLite storage using modernc.org/sqlite
-│   │   └── db_test.go          # SQLite unit tests
-│   └── downloader/
-│       ├── manager.go          # Multi-chunk concurrent downloader with resume support
-│       └── manager_test.go     # End-to-end range download test
-└── frontend/                   # Svelte + Tailwind CSS UI
-    ├── package.json
-    ├── vite.config.js          # Vite 8 with Tailwind CSS plugin & @wails alias
-    ├── src/
-    │   ├── App.svelte          # Main dashboard & live stats bar
-    │   ├── main.js             # Svelte client entrypoint
-    │   ├── style.css           # Tailwind v4 theme & custom scrollbar
-    │   └── lib/
-    │       ├── AddDownloadModal.svelte  # New download dialog with URL probing
-    │       ├── ChunkVisualizer.svelte   # Visual chunk offsets progress bar
-    │       ├── DownloadItem.svelte      # Download card with controls
-    │       ├── HistoryModal.svelte      # SQLite URL history viewer
-    │       └── formatters.js            # Size, speed, ETA, and date helpers
-    └── wailsjs/                # Generated Go-to-JS bindings & TypeScript models
-```
+- **Single Responsibility Principle (SRP)**:
+  - `storage/sqlite`: Handles pure database operations with WAL mode, foreign keys, and indexed queries.
+  - `prober`: URL metadata inspection and filename extraction.
+  - `planner`: Boundary division and chunk partition mathematics.
+  - `downloader/worker`: Concurrent HTTP streaming and random-access file writing (`io.WriterAt`).
+  - `downloader/metrics`: Transfer rate smoothing via exponential moving average (EMA) and ETA.
+  - `events`: Decoupled system event broadcast sink.
+  - `sysutil`: Native operating system integration (Finder/Explorer/open).
+- **Open/Closed Principle (OCP)**: All core components interact through interfaces (`storage.Repository`, `prober.URLProber`, `planner.ChunkPlanner`, `events.Broadcaster`), permitting drop-in extensions without modifying existing orchestration code.
+- **Liskov Substitution Principle (LSP)**: Mock and alternative implementations (e.g., `events.NullBroadcaster`, in-memory repositories) safely substitute concrete implementations without breaking contracts.
+- **Interface Segregation Principle (ISP)**: Granular interfaces (`DownloadRepository`, `ChunkRepository`, `HistoryRepository`) ensure callers depend strictly on the methods they require.
+- **Dependency Inversion Principle (DIP)**: `downloader.Manager` depends exclusively on abstract contracts, with concrete implementations injected at application startup.
+
+For complete architectural breakdowns and diagrams, see [ARCHITECTURE.md](file:///Users/diksha/Documents/candak/docs/ARCHITECTURE.md).
 
 ---
 
 ## Features
 
-1. **Multi-Part / Concurrent Chunking**:
-   - Analyzes target server `Accept-Ranges` and `Content-Length`.
-   - Divides files into configurable concurrent chunks (1 to 16 threads).
-   - Writes directly to disk using random-access file writing (`io.WriterAt`), avoiding temporary file concatenation.
+1. **Multi-Threaded Concurrent Chunking**:
+   - Queries server `Accept-Ranges` and divides files into balanced byte segments (1 to 16 parallel connections).
+   - Writes directly to target files via `io.WriterAt`, avoiding post-download file concatenation.
 
-2. **Resume & Chunk Offset Tracking (modernc.org/sqlite)**:
-   - Stores byte-level chunk offsets (`start_offset`, `end_offset`, `current_offset`) in SQLite.
-   - Saves progress regularly and on pause/shutdown.
-   - When resumed, each worker picks up from its exact `current_offset`.
+2. **Resume & Chunk Offset Tracking (`modernc.org/sqlite`)**:
+   - Stores exact byte-level chunk offsets (`current_offset`) in SQLite.
+   - Saves progress periodically and immediately upon pause/shutdown.
+   - When resumed, each connection picks up from its exact saved byte offset.
 
-3. **URL History Tracking**:
-   - Automatically records downloaded URLs, filenames, and download frequency in SQLite.
-   - Access previous URLs from the "URL History" drawer to re-download or copy with one click.
+3. **URL History Management**:
+   - Tracks previously downloaded URLs, target filenames, and download frequencies in SQLite.
+   - Quick one-click re-downloading and clipboard copying from the URL history drawer.
 
 4. **Real-time Event Streaming**:
-   - Sends real-time progress events (`download:progress`, `download:status_change`) over the Wails event bus.
-   - Live speed calculation (rolling EMA) and ETA estimation.
+   - Streams `download:progress` and `download:status_change` events over the Wails event bus without UI polling.
+   - Responsive speed calculation and ETA estimation.
 
-5. **Modern Desktop UI**:
-   - Dark theme styling with Tailwind CSS.
+5. **Modern Desktop Interface**:
+   - Sleek dark theme with Tailwind CSS v4 and Lucide icons.
    - Native OS directory picker dialog (`SelectDirectory`).
-   - Native open file and "Show in Folder" (Finder / Explorer) integration.
-   - Interactive chunk visualizer showing each chunk's progress bar.
+   - Native "Open File" and "Show in Folder" (macOS Finder / Windows Explorer) integration.
+   - Interactive chunk visualizer showing each chunk's progress bar and byte offsets.
 
 ---
 
-## Development & Running
+## Quick Start
 
 ### Prerequisites
-- **Go 1.20+**
+- **Go 1.20+** (tested on Go 1.26+)
 - **Node.js 18+** & **npm**
-- **Wails CLI** (installed at `~/go/bin/wails`):
+- **Wails CLI**:
   ```bash
   go install github.com/wailsapp/wails/v2/cmd/wails@latest
   ```
 
-### Run in Development Mode
-Starts live-reloading for both Go backend and Svelte frontend:
+### Development Mode (with Live Reload)
 ```bash
 wails dev
 ```
 
-### Build Production Desktop App
-Builds an optimized, native desktop application (.app on macOS, .exe on Windows, ELF binary on Linux):
+### Production Build
 ```bash
 wails build
 ```
 
-Or build a standalone Go binary directly (assets are embedded via `//go:embed`):
-```bash
-cd frontend && npm run build && cd ..
-go build -o candak
-```
-
 ### Run Tests
 ```bash
-go test -v ./internal/db
-go test -v ./internal/downloader
+go test -v ./...
 ```
+
+For full documentation and API reference, see [USAGE.md](file:///Users/diksha/Documents/candak/docs/USAGE.md).
 
 ---
 
-## SQLite Database Location
-The application creates and maintains its SQLite database at:
-- **macOS / Linux**: `~/.candak/candak.db`
-- **Windows**: `%USERPROFILE%\.candak\candak.db`
+## License
+See [LICENSE](file:///Users/diksha/Documents/candak/LICENSE) file.

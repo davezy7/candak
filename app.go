@@ -4,35 +4,44 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 
-	"candak/internal/db"
 	"candak/internal/downloader"
+	"candak/internal/events"
 	"candak/internal/models"
+	"candak/internal/planner"
+	"candak/internal/prober"
+	"candak/internal/storage"
+	"candak/internal/storage/sqlite"
+	"candak/internal/sysutil"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// App struct
+// App acts as the boundary adapter between the Wails frontend IPC and domain services.
 type App struct {
-	ctx             context.Context
-	database        *db.Database
-	downloadManager *downloader.Manager
+	ctx         context.Context
+	repo        storage.Repository
+	manager     *downloader.Manager
+	broadcaster *events.WailsBroadcaster
+	opener      sysutil.SystemOpener
 }
 
-// NewApp creates a new App application struct
+// NewApp constructs a new App application struct.
 func NewApp() *App {
-	return &App{}
+	broadcaster := events.NewWailsBroadcaster()
+	return &App{
+		broadcaster: broadcaster,
+		opener:      sysutil.NewOSOpener(),
+	}
 }
 
-// startup is called when the app starts. The context is saved
-// so we can call the runtime methods
+// startup is called by Wails when the desktop application launches.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.broadcaster.SetContext(ctx)
 
-	// Locate app data directory
+	// Determine user storage path
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		homeDir = "."
@@ -41,97 +50,102 @@ func (a *App) startup(ctx context.Context) {
 	_ = os.MkdirAll(appDir, 0755)
 
 	dbPath := filepath.Join(appDir, "candak.db")
-	database, err := db.InitDB(dbPath)
+	repo, err := sqlite.New(dbPath)
 	if err != nil {
-		wailsRuntime.LogErrorf(ctx, "Failed to initialize database: %v", err)
+		wailsRuntime.LogErrorf(ctx, "Failed to initialize SQLite storage: %v", err)
 		return
 	}
-	a.database = database
+	a.repo = repo
 
-	a.downloadManager = downloader.NewManager(database)
-	a.downloadManager.SetAppContext(ctx)
+	// Compose Download Manager with injected dependencies (SOLID DIP)
+	a.manager = downloader.NewManager(downloader.Config{
+		Repository:   repo,
+		Prober:       prober.NewHTTPProber(),
+		ChunkPlanner: planner.NewDefaultChunkPlanner(),
+		Broadcaster:  a.broadcaster,
+	})
 }
 
-// shutdown is called at application termination
+// shutdown is called by Wails when the desktop application terminates.
 func (a *App) shutdown(ctx context.Context) {
-	if a.database != nil {
-		_ = a.database.Close()
+	if a.repo != nil {
+		_ = a.repo.Close()
 	}
 }
 
-// ProbeURL analyzes a URL for headers, filename, range support, and content size
+// ProbeURL analyzes target URL metadata and range capabilities.
 func (a *App) ProbeURL(rawURL string) (*models.ProbeResult, error) {
-	if a.downloadManager == nil {
-		return nil, fmt.Errorf("download manager not initialized")
+	if a.manager == nil {
+		return nil, fmt.Errorf("download manager is not ready")
 	}
-	return a.downloadManager.ProbeURL(rawURL)
+	return a.manager.ProbeURL(a.ctx, rawURL)
 }
 
-// AddDownload starts a new download
+// AddDownload initializes, stores, and starts a download task.
 func (a *App) AddDownload(req models.AddDownloadRequest) (*models.Download, error) {
-	if a.downloadManager == nil {
-		return nil, fmt.Errorf("download manager not initialized")
+	if a.manager == nil {
+		return nil, fmt.Errorf("download manager is not ready")
 	}
-	return a.downloadManager.AddDownload(req)
+	return a.manager.AddDownload(a.ctx, req)
 }
 
-// PauseDownload pauses an ongoing download and keeps chunk offsets saved in SQLite
+// PauseDownload suspends an active download task and persists chunk offsets.
 func (a *App) PauseDownload(id string) error {
-	if a.downloadManager == nil {
-		return fmt.Errorf("download manager not initialized")
+	if a.manager == nil {
+		return fmt.Errorf("download manager is not ready")
 	}
-	return a.downloadManager.PauseDownload(id)
+	return a.manager.PauseDownload(a.ctx, id)
 }
 
-// ResumeDownload resumes a paused or interrupted download from saved chunk offsets
+// ResumeDownload restarts a paused download using saved chunk offsets.
 func (a *App) ResumeDownload(id string) error {
-	if a.downloadManager == nil {
-		return fmt.Errorf("download manager not initialized")
+	if a.manager == nil {
+		return fmt.Errorf("download manager is not ready")
 	}
-	return a.downloadManager.ResumeDownload(id)
+	return a.manager.ResumeDownload(a.ctx, id)
 }
 
-// CancelDownload cancels a download and optionally removes the downloaded file
+// CancelDownload cancels a download and optionally removes the downloaded file.
 func (a *App) CancelDownload(id string, deleteFile bool) error {
-	if a.downloadManager == nil {
-		return fmt.Errorf("download manager not initialized")
+	if a.manager == nil {
+		return fmt.Errorf("download manager is not ready")
 	}
-	return a.downloadManager.CancelDownload(id, deleteFile)
+	return a.manager.CancelDownload(a.ctx, id, deleteFile)
 }
 
-// GetDownloads retrieves all downloads from SQLite
+// GetDownloads retrieves all downloads from SQLite.
 func (a *App) GetDownloads() ([]*models.Download, error) {
-	if a.downloadManager == nil {
-		return nil, fmt.Errorf("download manager not initialized")
+	if a.manager == nil {
+		return nil, fmt.Errorf("download manager is not ready")
 	}
-	return a.downloadManager.GetAllDownloads()
+	return a.manager.GetAllDownloads(a.ctx)
 }
 
-// GetChunks retrieves chunk status and offsets for a specific download
+// GetChunks retrieves chunk status and byte offsets for a specific download.
 func (a *App) GetChunks(downloadID string) ([]*models.Chunk, error) {
-	if a.database == nil {
-		return nil, fmt.Errorf("database not initialized")
+	if a.repo == nil {
+		return nil, fmt.Errorf("storage repository is not ready")
 	}
-	return a.database.GetChunks(downloadID)
+	return a.repo.GetChunks(a.ctx, downloadID)
 }
 
-// GetURLHistory retrieves recently downloaded URLs from SQLite
+// GetURLHistory retrieves recently downloaded URLs from SQLite.
 func (a *App) GetURLHistory() ([]*models.URLHistoryItem, error) {
-	if a.downloadManager == nil {
-		return nil, fmt.Errorf("download manager not initialized")
+	if a.manager == nil {
+		return nil, fmt.Errorf("download manager is not ready")
 	}
-	return a.downloadManager.GetURLHistory(50)
+	return a.manager.GetURLHistory(a.ctx, 50)
 }
 
-// ClearURLHistory clears the URL history table
+// ClearURLHistory purges the URL history table.
 func (a *App) ClearURLHistory() error {
-	if a.downloadManager == nil {
-		return fmt.Errorf("download manager not initialized")
+	if a.manager == nil {
+		return fmt.Errorf("download manager is not ready")
 	}
-	return a.downloadManager.ClearURLHistory()
+	return a.manager.ClearURLHistory(a.ctx)
 }
 
-// SelectDirectory opens the native OS directory selector
+// SelectDirectory opens the native OS directory picker dialog.
 func (a *App) SelectDirectory() (string, error) {
 	home, _ := os.UserHomeDir()
 	defaultDir := filepath.Join(home, "Downloads")
@@ -145,7 +159,7 @@ func (a *App) SelectDirectory() (string, error) {
 	return selected, nil
 }
 
-// GetDefaultDownloadDir returns the system default downloads folder
+// GetDefaultDownloadDir returns the system default downloads directory.
 func (a *App) GetDefaultDownloadDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -158,30 +172,12 @@ func (a *App) GetDefaultDownloadDir() string {
 	return home
 }
 
-// OpenFile opens the downloaded file with system default application
+// OpenFile opens the downloaded file with the system default application.
 func (a *App) OpenFile(filePath string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", filePath)
-	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", filePath)
-	default:
-		cmd = exec.Command("xdg-open", filePath)
-	}
-	return cmd.Start()
+	return a.opener.OpenFile(filePath)
 }
 
-// ShowInFolder reveals the downloaded file in the OS file manager
+// ShowInFolder reveals the downloaded file in the native file manager (Finder / Explorer).
 func (a *App) ShowInFolder(filePath string) error {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", "-R", filePath)
-	case "windows":
-		cmd = exec.Command("explorer", "/select,", filePath)
-	default:
-		cmd = exec.Command("xdg-open", filepath.Dir(filePath))
-	}
-	return cmd.Start()
+	return a.opener.ShowInFolder(filePath)
 }

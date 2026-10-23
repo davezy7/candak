@@ -5,10 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"io"
-	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,165 +13,124 @@ import (
 	"sync/atomic"
 	"time"
 
-	"candak/internal/db"
+	"candak/internal/events"
 	"candak/internal/models"
-
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"candak/internal/planner"
+	"candak/internal/prober"
+	"candak/internal/storage"
 )
 
-type activeDownload struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	download   *models.Download
-	chunks     []*models.Chunk
-	file       *os.File
-	mu         sync.Mutex
-	lastBytes  int64
-	lastTime   time.Time
-	speedEMA   float64
-	doneChan   chan struct{}
+type activeTask struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
+	download *models.Download
+	chunks   []*models.Chunk
+	file     *os.File
+	doneChan chan struct{}
 }
 
+// Manager orchestrates multi-chunk download tasks and state persistence.
 type Manager struct {
-	db          *db.Database
-	appCtx      context.Context
-	httpClient  *http.Client
+	repo       storage.Repository
+	prober     prober.URLProber
+	planner    planner.ChunkPlanner
+	emitter    events.Broadcaster
+	httpClient *http.Client
+	worker     *ChunkWorker
+
 	mu          sync.RWMutex
-	activeTasks map[string]*activeDownload
+	activeTasks map[string]*activeTask
 }
 
-func NewManager(database *db.Database) *Manager {
-	return &Manager{
-		db: database,
-		httpClient: &http.Client{
-			Timeout: 0, // No client-level timeout for large file downloads
+// Config provides configuration parameters for Manager.
+type Config struct {
+	Repository   storage.Repository
+	Prober       prober.URLProber
+	ChunkPlanner planner.ChunkPlanner
+	Broadcaster  events.Broadcaster
+	HTTPClient   *http.Client
+	UserAgent    string
+}
+
+// NewManager constructs a download Manager with injected dependencies.
+func NewManager(cfg Config) *Manager {
+	client := cfg.HTTPClient
+	if client == nil {
+		client = &http.Client{
+			Timeout: 0,
 			Transport: &http.Transport{
 				MaxIdleConns:        100,
 				MaxIdleConnsPerHost: 20,
 				IdleConnTimeout:     90 * time.Second,
 			},
-		},
-		activeTasks: make(map[string]*activeDownload),
+		}
+	}
+
+	ua := cfg.UserAgent
+	if ua == "" {
+		ua = "Candak-Download-Manager/1.0"
+	}
+
+	pr := cfg.Prober
+	if pr == nil {
+		pr = prober.NewHTTPProber(prober.WithHTTPClient(client), prober.WithUserAgent(ua))
+	}
+
+	pl := cfg.ChunkPlanner
+	if pl == nil {
+		pl = planner.NewDefaultChunkPlanner()
+	}
+
+	em := cfg.Broadcaster
+	if em == nil {
+		em = events.NewNullBroadcaster()
+	}
+
+	return &Manager{
+		repo:        cfg.Repository,
+		prober:      pr,
+		planner:     pl,
+		emitter:     em,
+		httpClient:  client,
+		worker:      NewChunkWorker(client, ua),
+		activeTasks: make(map[string]*activeTask),
 	}
 }
 
-func (m *Manager) SetAppContext(ctx context.Context) {
-	m.appCtx = ctx
+// SetBroadcaster updates the event broadcaster (e.g. after Wails context is ready).
+func (m *Manager) SetBroadcaster(b events.Broadcaster) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.emitter = b
 }
 
 func generateID() string {
-	bytes := make([]byte, 8)
-	_, _ = rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
-func (m *Manager) ProbeURL(rawURL string) (*models.ProbeResult, error) {
-	parsedURL, err := url.ParseRequestURI(rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-
-	req, err := http.NewRequest("HEAD", parsedURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "Candak-Download-Manager/1.0 (Mozilla/5.0)")
-
-	resp, err := m.httpClient.Do(req)
-	// If HEAD is rejected or fails, attempt GET with Range: bytes=0-0
-	if err != nil || resp.StatusCode >= 400 {
-		getReq, err := http.NewRequest("GET", parsedURL.String(), nil)
-		if err != nil {
-			return nil, err
-		}
-		getReq.Header.Set("User-Agent", "Candak-Download-Manager/1.0 (Mozilla/5.0)")
-		getReq.Header.Set("Range", "bytes=0-0")
-		resp, err = m.httpClient.Do(getReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to probe URL: %w", err)
-		}
-		defer resp.Body.Close()
-	} else {
-		defer resp.Body.Close()
-	}
-
-	totalSize := resp.ContentLength
-	resumable := false
-
-	if resp.Header.Get("Accept-Ranges") == "bytes" || resp.Header.Get("Content-Range") != "" {
-		resumable = true
-	}
-
-	// Try extracting filename
-	filename := ""
-	contentDisp := resp.Header.Get("Content-Disposition")
-	if contentDisp != "" {
-		if _, params, err := mime.ParseMediaType(contentDisp); err == nil {
-			if fn, ok := params["filename*"]; ok {
-				parts := strings.SplitN(fn, "''", 2)
-				if len(parts) == 2 {
-					if unesc, err := url.PathUnescape(parts[1]); err == nil {
-						filename = unesc
-					}
-				}
-			}
-			if filename == "" {
-				filename = params["filename"]
-			}
-		}
-	}
-
-	if filename == "" {
-		urlPath := parsedURL.Path
-		filename = filepath.Base(urlPath)
-		if filename == "." || filename == "/" || filename == "" {
-			filename = "download.bin"
-		} else {
-			if unesc, err := url.PathUnescape(filename); err == nil {
-				filename = unesc
-			}
-		}
-	}
-
-	filename = sanitizeFilename(filename)
-
-	return &models.ProbeResult{
-		URL:         rawURL,
-		Filename:    filename,
-		TotalSize:   totalSize,
-		Resumable:   resumable,
-		ContentType: resp.Header.Get("Content-Type"),
-	}, nil
+// ProbeURL analyzes target metadata via the injected URLProber.
+func (m *Manager) ProbeURL(ctx context.Context, rawURL string) (*models.ProbeResult, error) {
+	return m.prober.Probe(ctx, rawURL)
 }
 
-func sanitizeFilename(name string) string {
-	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
-	clean := name
-	for _, c := range invalidChars {
-		clean = strings.ReplaceAll(clean, c, "_")
-	}
-	clean = strings.TrimSpace(clean)
-	if clean == "" {
-		clean = "download.bin"
-	}
-	return clean
-}
-
-func (m *Manager) AddDownload(req models.AddDownloadRequest) (*models.Download, error) {
+// AddDownload initializes, stores, and starts a download task.
+func (m *Manager) AddDownload(ctx context.Context, req models.AddDownloadRequest) (*models.Download, error) {
 	if req.URL == "" {
-		return nil, fmt.Errorf("URL cannot be empty")
+		return nil, models.ErrInvalidURL
 	}
 
-	probe, err := m.ProbeURL(req.URL)
+	probeRes, err := m.prober.Probe(ctx, req.URL)
 	if err != nil {
 		return nil, err
 	}
 
 	filename := req.Filename
 	if filename == "" {
-		filename = probe.Filename
+		filename = probeRes.Filename
 	}
-	filename = sanitizeFilename(filename)
+	filename = prober.SanitizeFilename(filename)
 
 	saveDir := req.SaveDir
 	if saveDir == "" {
@@ -182,82 +138,37 @@ func (m *Manager) AddDownload(req models.AddDownloadRequest) (*models.Download, 
 		saveDir = filepath.Join(home, "Downloads")
 	}
 
-	savePath := filepath.Join(saveDir, filename)
-	// If file exists, add a suffix
-	savePath = ensureUniqueFilePath(savePath)
+	savePath := ensureUniqueFilePath(filepath.Join(saveDir, filename))
 	filename = filepath.Base(savePath)
 
-	connections := req.Connections
-	if connections <= 0 {
-		connections = 4
-	}
-	if !probe.Resumable || probe.TotalSize <= 0 {
-		connections = 1
-	}
-
 	dlID := generateID()
+	chunks := m.planner.Plan(dlID, probeRes.TotalSize, probeRes.Resumable, req.Connections)
+
 	dl := &models.Download{
 		ID:             dlID,
 		URL:            req.URL,
 		Filename:       filename,
 		SavePath:       savePath,
-		TotalSize:      probe.TotalSize,
+		TotalSize:      probeRes.TotalSize,
 		DownloadedSize: 0,
 		Status:         models.StatusQueued,
-		Resumable:      probe.Resumable,
-		TotalChunks:    connections,
+		Resumable:      probeRes.Resumable,
+		TotalChunks:    len(chunks),
 		Speed:          0,
 		ETA:            0,
 		ErrorMessage:   "",
+		Chunks:         chunks,
 	}
 
-	// Create chunks
-	var chunks []*models.Chunk
-	if probe.Resumable && probe.TotalSize > 0 && connections > 1 {
-		chunkSize := probe.TotalSize / int64(connections)
-		for i := 0; i < connections; i++ {
-			start := int64(i) * chunkSize
-			end := start + chunkSize - 1
-			if i == connections-1 {
-				end = probe.TotalSize - 1
-			}
-			chunks = append(chunks, &models.Chunk{
-				ID:            fmt.Sprintf("%s_c%d", dlID, i),
-				DownloadID:    dlID,
-				ChunkIndex:    i,
-				StartOffset:   start,
-				EndOffset:     end,
-				CurrentOffset: start,
-				Status:        models.ChunkStatusPending,
-			})
-		}
-	} else {
-		endOffset := probe.TotalSize - 1
-		if endOffset < 0 {
-			endOffset = 0
-		}
-		chunks = append(chunks, &models.Chunk{
-			ID:            fmt.Sprintf("%s_c0", dlID),
-			DownloadID:    dlID,
-			ChunkIndex:    0,
-			StartOffset:   0,
-			EndOffset:     endOffset,
-			CurrentOffset: 0,
-			Status:        models.ChunkStatusPending,
-		})
+	if err := m.repo.InsertDownload(ctx, dl); err != nil {
+		return nil, fmt.Errorf("failed to insert download: %w", err)
 	}
-
-	dl.Chunks = chunks
-
-	if err := m.db.InsertDownload(dl); err != nil {
-		return nil, fmt.Errorf("failed to save download to database: %w", err)
+	if err := m.repo.SaveChunks(ctx, chunks); err != nil {
+		return nil, fmt.Errorf("failed to save chunks: %w", err)
 	}
-	if err := m.db.SaveChunks(chunks); err != nil {
-		return nil, fmt.Errorf("failed to save chunks to database: %w", err)
-	}
-	_ = m.db.RecordURLHistory(req.URL, filename)
+	_ = m.repo.RecordURLHistory(ctx, req.URL, filename)
 
-	// Start the download immediately
+	// Launch download worker goroutine
 	go m.startTask(dl, chunks)
 
 	return dl, nil
@@ -288,14 +199,12 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	task := &activeDownload{
-		ctx:        ctx,
-		cancel:     cancel,
-		download:   dl,
-		chunks:     chunks,
-		doneChan:   make(chan struct{}),
-		lastBytes:  dl.DownloadedSize,
-		lastTime:   time.Now(),
+	task := &activeTask{
+		ctx:      ctx,
+		cancel:   cancel,
+		download: dl,
+		chunks:   chunks,
+		doneChan: make(chan struct{}),
 	}
 	m.activeTasks[dl.ID] = task
 	m.mu.Unlock()
@@ -307,10 +216,10 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 		close(task.doneChan)
 	}()
 
-	// Open or create file for writing chunks at offset
+	// Ensure destination file
 	file, err := os.OpenFile(dl.SavePath, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
-		m.finishWithError(dl, fmt.Sprintf("failed to create destination file: %v", err))
+		m.finishWithError(dl, fmt.Sprintf("%v: %v", models.ErrDestinationAccess, err))
 		return
 	}
 	defer file.Close()
@@ -321,17 +230,22 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 	}
 
 	dl.Status = models.StatusDownloading
-	_ = m.db.UpdateDownloadStatus(dl.ID, models.StatusDownloading, "")
+	_ = m.repo.UpdateDownloadStatus(ctx, dl.ID, models.StatusDownloading, "")
 	m.emitStatusChange(dl)
 
-	// Start ticker for progress & speed calculation
+	var currentDownloadedBytes int64 = dl.DownloadedSize
+	metrics := NewMetricsCalculator(currentDownloadedBytes)
+
+	// Progress loop ticker
 	progressTicker := time.NewTicker(300 * time.Millisecond)
 	defer progressTicker.Stop()
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(chunks))
 
-	var currentDownloadedBytes int64 = dl.DownloadedSize
+	persistCallback := func(cCtx context.Context, chunkID string, currentOffset int64, status models.ChunkStatus) error {
+		return m.repo.UpdateChunkOffset(cCtx, chunkID, currentOffset, status)
+	}
 
 	for _, chunk := range chunks {
 		if chunk.CurrentOffset > chunk.EndOffset && chunk.EndOffset > 0 {
@@ -342,15 +256,14 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 		wg.Add(1)
 		go func(c *models.Chunk) {
 			defer wg.Done()
-			if err := m.downloadChunk(ctx, dl, c, file, &currentDownloadedBytes); err != nil {
+			if err := m.worker.Download(ctx, dl.URL, dl.Resumable, c, file, &currentDownloadedBytes, persistCallback); err != nil {
 				if ctx.Err() == nil {
-					errChan <- fmt.Errorf("chunk %d failed: %w", c.ChunkIndex, err)
+					errChan <- fmt.Errorf("chunk %d: %w", c.ChunkIndex, err)
 				}
 			}
 		}(chunk)
 	}
 
-	// Progress loop
 	tickerDone := make(chan struct{})
 	go func() {
 		for {
@@ -360,33 +273,11 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 			case <-tickerDone:
 				return
 			case now := <-progressTicker.C:
-				totalDownloaded := atomic.LoadInt64(&currentDownloadedBytes)
-				dl.DownloadedSize = totalDownloaded
+				total := atomic.LoadInt64(&currentDownloadedBytes)
+				dl.DownloadedSize = total
+				dl.Speed, dl.ETA = metrics.Update(now, total, dl.TotalSize)
 
-				// Compute speed
-				timeDelta := now.Sub(task.lastTime).Seconds()
-				if timeDelta > 0 {
-					bytesDelta := totalDownloaded - task.lastBytes
-					if bytesDelta < 0 {
-						bytesDelta = 0
-					}
-					instantSpeed := float64(bytesDelta) / timeDelta
-					if task.speedEMA == 0 {
-						task.speedEMA = instantSpeed
-					} else {
-						task.speedEMA = (0.7 * instantSpeed) + (0.3 * task.speedEMA)
-					}
-					dl.Speed = int64(task.speedEMA)
-					if dl.Speed > 0 && dl.TotalSize > totalDownloaded {
-						dl.ETA = (dl.TotalSize - totalDownloaded) / dl.Speed
-					} else {
-						dl.ETA = 0
-					}
-					task.lastBytes = totalDownloaded
-					task.lastTime = now
-				}
-
-				_ = m.db.UpdateDownloadProgress(dl.ID, dl.DownloadedSize, dl.Speed, dl.ETA, dl.Status)
+				_ = m.repo.UpdateDownloadProgress(ctx, dl.ID, dl.DownloadedSize, dl.Speed, dl.ETA, dl.Status)
 				m.emitProgress(dl, chunks)
 			}
 		}
@@ -397,7 +288,7 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 
 	// Check if cancelled or paused
 	if ctx.Err() != nil {
-		_ = m.db.UpdateDownloadProgress(dl.ID, dl.DownloadedSize, 0, 0, dl.Status)
+		_ = m.repo.UpdateDownloadProgress(context.Background(), dl.ID, dl.DownloadedSize, 0, 0, dl.Status)
 		m.emitStatusChange(dl)
 		return
 	}
@@ -410,13 +301,13 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 	default:
 	}
 
-	// Completed
+	// Mark completed
 	dl.Status = models.StatusCompleted
 	dl.DownloadedSize = dl.TotalSize
 	dl.Speed = 0
 	dl.ETA = 0
-	_ = m.db.UpdateDownloadProgress(dl.ID, dl.TotalSize, 0, 0, models.StatusCompleted)
-	_ = m.db.UpdateDownloadStatus(dl.ID, models.StatusCompleted, "")
+	_ = m.repo.UpdateDownloadProgress(context.Background(), dl.ID, dl.TotalSize, 0, 0, models.StatusCompleted)
+	_ = m.repo.UpdateDownloadStatus(context.Background(), dl.ID, models.StatusCompleted, "")
 	for _, c := range chunks {
 		c.Status = models.ChunkStatusCompleted
 	}
@@ -424,125 +315,62 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 	m.emitStatusChange(dl)
 }
 
-func (m *Manager) downloadChunk(ctx context.Context, dl *models.Download, c *models.Chunk, file *os.File, totalDownloaded *int64) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", dl.URL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "Candak-Download-Manager/1.0 (Mozilla/5.0)")
-
-	// If ranges are supported and not entire file without end offset
-	if dl.Resumable && c.EndOffset > 0 {
-		rangeHeader := fmt.Sprintf("bytes=%d-%d", c.CurrentOffset, c.EndOffset)
-		req.Header.Set("Range", rangeHeader)
-	}
-
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
-		return fmt.Errorf("unexpected HTTP status: %d", resp.StatusCode)
-	}
-
-	c.Status = models.ChunkStatusDownloading
-
-	buf := make([]byte, 64*1024)
-	lastPersisted := time.Now()
-
-	for {
-		select {
-		case <-ctx.Done():
-			_ = m.db.UpdateChunkOffset(c.ID, c.CurrentOffset, models.ChunkStatusPending)
-			return ctx.Err()
-		default:
-		}
-
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			_, writeErr := file.WriteAt(buf[:n], c.CurrentOffset)
-			if writeErr != nil {
-				return fmt.Errorf("file write error: %w", writeErr)
-			}
-			c.CurrentOffset += int64(n)
-			atomic.AddInt64(totalDownloaded, int64(n))
-
-			// Persist chunk offset to DB every 1 second
-			if time.Since(lastPersisted) > 1*time.Second {
-				_ = m.db.UpdateChunkOffset(c.ID, c.CurrentOffset, models.ChunkStatusDownloading)
-				lastPersisted = time.Now()
-			}
-		}
-
-		if readErr != nil {
-			if readErr == io.EOF {
-				break
-			}
-			return readErr
-		}
-	}
-
-	c.Status = models.ChunkStatusCompleted
-	_ = m.db.UpdateChunkOffset(c.ID, c.CurrentOffset, models.ChunkStatusCompleted)
-	return nil
-}
-
 func (m *Manager) finishWithError(dl *models.Download, errMsg string) {
 	dl.Status = models.StatusError
 	dl.ErrorMessage = errMsg
 	dl.Speed = 0
 	dl.ETA = 0
-	_ = m.db.UpdateDownloadStatus(dl.ID, models.StatusError, errMsg)
+	_ = m.repo.UpdateDownloadStatus(context.Background(), dl.ID, models.StatusError, errMsg)
 	m.emitStatusChange(dl)
 }
 
-func (m *Manager) PauseDownload(id string) error {
+// PauseDownload suspends an active download and preserves offset progress.
+func (m *Manager) PauseDownload(ctx context.Context, id string) error {
 	m.mu.Lock()
 	task, exists := m.activeTasks[id]
 	if !exists {
 		m.mu.Unlock()
-		// If not in active tasks, check DB and mark paused if needed
-		dl, err := m.db.GetDownload(id)
+		dl, err := m.repo.GetDownload(ctx, id)
 		if err != nil {
 			return err
 		}
 		if dl.Status == models.StatusDownloading || dl.Status == models.StatusQueued {
-			return m.db.UpdateDownloadStatus(id, models.StatusPaused, "")
+			return m.repo.UpdateDownloadStatus(ctx, id, models.StatusPaused, "")
 		}
 		return nil
 	}
+
 	task.download.Status = models.StatusPaused
 	task.cancel()
 	m.mu.Unlock()
 
 	<-task.doneChan
-	_ = m.db.UpdateDownloadStatus(id, models.StatusPaused, "")
-	dl, _ := m.db.GetDownload(id)
+	_ = m.repo.UpdateDownloadStatus(ctx, id, models.StatusPaused, "")
+	dl, _ := m.repo.GetDownload(ctx, id)
 	if dl != nil {
 		m.emitStatusChange(dl)
 	}
 	return nil
 }
 
-func (m *Manager) ResumeDownload(id string) error {
+// ResumeDownload restarts a paused download from saved chunk offsets.
+func (m *Manager) ResumeDownload(ctx context.Context, id string) error {
 	m.mu.Lock()
 	if _, exists := m.activeTasks[id]; exists {
 		m.mu.Unlock()
-		return fmt.Errorf("download is already running")
+		return models.ErrAlreadyRunning
 	}
 	m.mu.Unlock()
 
-	dl, err := m.db.GetDownload(id)
+	dl, err := m.repo.GetDownload(ctx, id)
 	if err != nil {
 		return err
 	}
 	if dl.Status == models.StatusCompleted {
-		return fmt.Errorf("download is already completed")
+		return models.ErrAlreadyCompleted
 	}
 
-	chunks, err := m.db.GetChunks(id)
+	chunks, err := m.repo.GetChunks(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -551,7 +379,8 @@ func (m *Manager) ResumeDownload(id string) error {
 	return nil
 }
 
-func (m *Manager) CancelDownload(id string, deleteFile bool) error {
+// CancelDownload cancels a download and optionally purges the file from disk.
+func (m *Manager) CancelDownload(ctx context.Context, id string, deleteFile bool) error {
 	m.mu.Lock()
 	task, exists := m.activeTasks[id]
 	if exists {
@@ -563,41 +392,39 @@ func (m *Manager) CancelDownload(id string, deleteFile bool) error {
 		m.mu.Unlock()
 	}
 
-	dl, err := m.db.GetDownload(id)
-	if err != nil {
+	dl, err := m.repo.GetDownload(ctx, id)
+	if err != nil && err != models.ErrDownloadNotFound {
 		return err
 	}
 
-	if deleteFile && dl.SavePath != "" {
+	if deleteFile && dl != nil && dl.SavePath != "" {
 		_ = os.Remove(dl.SavePath)
 	}
 
-	if err := m.db.DeleteDownload(id); err != nil {
+	if err := m.repo.DeleteDownload(ctx, id); err != nil {
 		return err
 	}
 
-	if m.appCtx != nil {
-		wailsRuntime.EventsEmit(m.appCtx, "download:deleted", id)
-	}
+	m.emitter.Emit("download:deleted", id)
 	return nil
 }
 
-func (m *Manager) GetAllDownloads() ([]*models.Download, error) {
-	return m.db.GetAllDownloads()
+// GetAllDownloads returns all registered downloads.
+func (m *Manager) GetAllDownloads(ctx context.Context) ([]*models.Download, error) {
+	return m.repo.GetAllDownloads(ctx)
 }
 
-func (m *Manager) GetURLHistory(limit int) ([]*models.URLHistoryItem, error) {
-	return m.db.GetURLHistory(limit)
+// GetURLHistory returns the URL history list.
+func (m *Manager) GetURLHistory(ctx context.Context, limit int) ([]*models.URLHistoryItem, error) {
+	return m.repo.GetURLHistory(ctx, limit)
 }
 
-func (m *Manager) ClearURLHistory() error {
-	return m.db.ClearURLHistory()
+// ClearURLHistory purges the URL history records.
+func (m *Manager) ClearURLHistory(ctx context.Context) error {
+	return m.repo.ClearURLHistory(ctx)
 }
 
 func (m *Manager) emitProgress(dl *models.Download, chunks []*models.Chunk) {
-	if m.appCtx == nil {
-		return
-	}
 	var progress float64 = 0
 	if dl.TotalSize > 0 {
 		progress = (float64(dl.DownloadedSize) / float64(dl.TotalSize)) * 100.0
@@ -616,12 +443,9 @@ func (m *Manager) emitProgress(dl *models.Download, chunks []*models.Chunk) {
 		Status:         dl.Status,
 		Chunks:         chunks,
 	}
-	wailsRuntime.EventsEmit(m.appCtx, "download:progress", evt)
+	m.emitter.Emit("download:progress", evt)
 }
 
 func (m *Manager) emitStatusChange(dl *models.Download) {
-	if m.appCtx == nil {
-		return
-	}
-	wailsRuntime.EventsEmit(m.appCtx, "download:status_change", dl)
+	m.emitter.Emit("download:status_change", dl)
 }

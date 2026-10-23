@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { ProbeURL, AddDownload, SelectDirectory, GetDefaultDownloadDir } from '@wails/go/main/App.js';
   import { formatBytes } from './formatters.js';
-  import { X, Search, Folder, Zap, AlertCircle, CheckCircle, Globe, Link } from 'lucide-svelte';
+  import { X, Search, Folder, Zap, AlertCircle, CheckCircle, Link } from 'lucide-svelte';
 
   export let isOpen = false;
   export let onClose = () => {};
@@ -70,7 +70,7 @@
         url: url.trim(),
         filename: filename.trim(),
         saveDir: saveDir,
-        connections: parseInt(connections) || 4
+        connections: parseInt(connections, 10) || 4
       });
       onAdded();
       handleClose();
@@ -89,15 +89,28 @@
     isSubmitting = false;
     onClose();
   }
+
+  function handleKeydown(event) {
+    if (event.key === 'Escape') {
+      handleClose();
+    }
+  }
 </script>
 
 {#if isOpen}
   <!-- Backdrop -->
   <div 
     class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    role="presentation"
     on:click|self={handleClose}
+    on:keydown={handleKeydown}
   >
-    <div class="bg-slate-900 border border-slate-700/80 rounded-xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div 
+      class="bg-slate-900 border border-slate-700/80 rounded-xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+    >
       <!-- Modal Header -->
       <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
         <div class="flex items-center gap-2.5">
@@ -105,13 +118,14 @@
             <Link size={18} />
           </div>
           <div>
-            <h3 class="font-semibold text-slate-100 text-sm">Add New Download</h3>
+            <h3 id="modal-title" class="font-semibold text-slate-100 text-sm">Add New Download</h3>
             <p class="text-xs text-slate-400">Multi-part chunked download with auto-resume</p>
           </div>
         </div>
         <button 
           on:click={handleClose}
           class="text-slate-400 hover:text-slate-200 p-1 rounded-md hover:bg-slate-800 transition"
+          aria-label="Close dialog"
         >
           <X size={18} />
         </button>
@@ -121,9 +135,10 @@
       <form on:submit|preventDefault={handleSubmit} class="p-5 space-y-4">
         <!-- URL Input -->
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">Download URL</label>
+          <label for="download-url" class="block text-xs font-medium text-slate-300 mb-1.5">Download URL</label>
           <div class="relative flex items-center">
             <input 
+              id="download-url"
               type="url" 
               bind:value={url}
               on:blur={handleProbe}
@@ -173,8 +188,9 @@
 
         <!-- Custom Filename -->
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">Save As Filename</label>
+          <label for="download-filename" class="block text-xs font-medium text-slate-300 mb-1.5">Save As Filename</label>
           <input 
+            id="download-filename"
             type="text" 
             bind:value={filename}
             placeholder={probeResult?.filename || "auto-detected-filename.bin"}
@@ -184,9 +200,10 @@
 
         <!-- Save Directory -->
         <div>
-          <label class="block text-xs font-medium text-slate-300 mb-1.5">Save Directory</label>
+          <label for="download-dir" class="block text-xs font-medium text-slate-300 mb-1.5">Save Directory</label>
           <div class="flex gap-2">
             <input 
+              id="download-dir"
               type="text" 
               bind:value={saveDir}
               placeholder="/Downloads"
@@ -206,13 +223,14 @@
         <!-- Concurrent Chunks / Connections -->
         <div>
           <div class="flex items-center justify-between mb-1.5">
-            <label class="text-xs font-medium text-slate-300 flex items-center gap-1">
+            <label for="download-connections" class="text-xs font-medium text-slate-300 flex items-center gap-1">
               <Zap size={14} class="text-amber-400" />
               Concurrent Chunk Connections
             </label>
             <span class="text-xs font-mono text-cyan-400 font-semibold">{connections} threads</span>
           </div>
           <input 
+            id="download-connections"
             type="range" 
             min="1" 
             max="16" 

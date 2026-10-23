@@ -1,25 +1,38 @@
 package models
 
+// DownloadStatus represents the lifecycle state of a download.
 type DownloadStatus string
 
 const (
-	StatusQueued      DownloadStatus = "queued"
+	// StatusQueued indicates the download is registered and awaiting execution.
+	StatusQueued DownloadStatus = "queued"
+	// StatusDownloading indicates the download is actively receiving data chunks.
 	StatusDownloading DownloadStatus = "downloading"
-	StatusPaused      DownloadStatus = "paused"
-	StatusCompleted   DownloadStatus = "completed"
-	StatusError       DownloadStatus = "error"
-	StatusCancelled   DownloadStatus = "cancelled"
+	// StatusPaused indicates the download was suspended and can be resumed.
+	StatusPaused DownloadStatus = "paused"
+	// StatusCompleted indicates all chunks have been received and verified.
+	StatusCompleted DownloadStatus = "completed"
+	// StatusError indicates a non-recoverable error halted the download.
+	StatusError DownloadStatus = "error"
+	// StatusCancelled indicates the user cancelled and aborted the download.
+	StatusCancelled DownloadStatus = "cancelled"
 )
 
+// ChunkStatus represents the state of an individual download chunk partition.
 type ChunkStatus string
 
 const (
-	ChunkStatusPending     ChunkStatus = "pending"
+	// ChunkStatusPending indicates the chunk has not started downloading.
+	ChunkStatusPending ChunkStatus = "pending"
+	// ChunkStatusDownloading indicates the chunk is currently streaming bytes.
 	ChunkStatusDownloading ChunkStatus = "downloading"
-	ChunkStatusCompleted   ChunkStatus = "completed"
-	ChunkStatusError       ChunkStatus = "error"
+	// ChunkStatusCompleted indicates the chunk reached its end offset.
+	ChunkStatusCompleted ChunkStatus = "completed"
+	// ChunkStatusError indicates the chunk worker encountered an error.
+	ChunkStatusError ChunkStatus = "error"
 )
 
+// Chunk represents a contiguous byte range of a download task.
 type Chunk struct {
 	ID            string      `json:"id"`
 	DownloadID    string      `json:"downloadId"`
@@ -30,6 +43,7 @@ type Chunk struct {
 	Status        ChunkStatus `json:"status"`
 }
 
+// Download represents a top-level file download entity.
 type Download struct {
 	ID             string         `json:"id"`
 	URL            string         `json:"url"`
@@ -40,14 +54,15 @@ type Download struct {
 	Status         DownloadStatus `json:"status"`
 	Resumable      bool           `json:"resumable"`
 	TotalChunks    int            `json:"totalChunks"`
-	Speed          int64          `json:"speed"` // bytes per second
-	ETA            int64          `json:"eta"`   // estimated seconds remaining
+	Speed          int64          `json:"speed"` // Bytes per second
+	ETA            int64          `json:"eta"`   // Estimated remaining seconds
 	ErrorMessage   string         `json:"errorMessage"`
 	CreatedAt      string         `json:"createdAt"`
 	UpdatedAt      string         `json:"updatedAt"`
 	Chunks         []*Chunk       `json:"chunks,omitempty"`
 }
 
+// URLHistoryItem represents a recorded URL entry in the SQLite history log.
 type URLHistoryItem struct {
 	ID            int64  `json:"id"`
 	URL           string `json:"url"`
@@ -56,6 +71,7 @@ type URLHistoryItem struct {
 	DownloadCount int    `json:"downloadCount"`
 }
 
+// ProbeResult contains metadata obtained from an HTTP inspection request.
 type ProbeResult struct {
 	URL         string `json:"url"`
 	Filename    string `json:"filename"`
@@ -64,6 +80,7 @@ type ProbeResult struct {
 	ContentType string `json:"contentType"`
 }
 
+// AddDownloadRequest holds the parameters for initializing a new download task.
 type AddDownloadRequest struct {
 	URL         string `json:"url"`
 	Filename    string `json:"filename"`
@@ -71,13 +88,14 @@ type AddDownloadRequest struct {
 	Connections int    `json:"connections"`
 }
 
+// ProgressEvent is emitted via the event bus to report real-time progress.
 type ProgressEvent struct {
 	DownloadID     string         `json:"downloadId"`
 	DownloadedSize int64          `json:"downloadedSize"`
 	TotalSize      int64          `json:"totalSize"`
-	Progress       float64        `json:"progress"` // 0.0 - 100.0
-	Speed          int64          `json:"speed"`
-	ETA            int64          `json:"eta"`
+	Progress       float64        `json:"progress"` // 0.0 - 100.0%
+	Speed          int64          `json:"speed"`    // Bytes/sec
+	ETA            int64          `json:"eta"`      // Seconds remaining
 	Status         DownloadStatus `json:"status"`
 	Chunks         []*Chunk       `json:"chunks,omitempty"`
 }

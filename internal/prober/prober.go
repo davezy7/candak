@@ -1,0 +1,149 @@
+package prober
+
+import (
+	"context"
+	"fmt"
+	"mime"
+	"net/http"
+	"net/url"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"candak/internal/models"
+)
+
+// URLProber inspects a remote URL to gather size, resumability, and filename metadata.
+type URLProber interface {
+	// Probe sends an inspection request and returns the ProbeResult.
+	Probe(ctx context.Context, rawURL string) (*models.ProbeResult, error)
+}
+
+// HTTPProber implements URLProber using standard HTTP client requests.
+type HTTPProber struct {
+	client    *http.Client
+	userAgent string
+}
+
+// Option configures an HTTPProber.
+type Option func(*HTTPProber)
+
+// WithHTTPClient overrides the default HTTP client used by HTTPProber.
+func WithHTTPClient(client *http.Client) Option {
+	return func(p *HTTPProber) {
+		p.client = client
+	}
+}
+
+// WithUserAgent sets a custom User-Agent string for probe requests.
+func WithUserAgent(ua string) Option {
+	return func(p *HTTPProber) {
+		p.userAgent = ua
+	}
+}
+
+// NewHTTPProber constructs an HTTPProber with configurable options.
+func NewHTTPProber(opts ...Option) *HTTPProber {
+	p := &HTTPProber{
+		client: &http.Client{
+			Timeout: 15 * time.Second,
+		},
+		userAgent: "Candak-Download-Manager/1.0 (Mozilla/5.0)",
+	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
+}
+
+// Probe inspects a remote URL via HEAD or range GET fallback.
+func (p *HTTPProber) Probe(ctx context.Context, rawURL string) (*models.ProbeResult, error) {
+	parsedURL, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", models.ErrInvalidURL, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, parsedURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", p.userAgent)
+
+	resp, err := p.client.Do(req)
+	// If HEAD request fails or receives an error status code, fallback to range GET (bytes=0-0)
+	if err != nil || resp.StatusCode >= 400 {
+		getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		getReq.Header.Set("User-Agent", p.userAgent)
+		getReq.Header.Set("Range", "bytes=0-0")
+
+		resp, err = p.client.Do(getReq)
+		if err != nil {
+			return nil, fmt.Errorf("probe request failed: %w", err)
+		}
+		defer resp.Body.Close()
+	} else {
+		defer resp.Body.Close()
+	}
+
+	totalSize := resp.ContentLength
+	resumable := false
+
+	if resp.Header.Get("Accept-Ranges") == "bytes" || resp.Header.Get("Content-Range") != "" {
+		resumable = true
+	}
+
+	filename := extractFilename(resp.Header.Get("Content-Disposition"), parsedURL.Path)
+	filename = SanitizeFilename(filename)
+
+	return &models.ProbeResult{
+		URL:         rawURL,
+		Filename:    filename,
+		TotalSize:   totalSize,
+		Resumable:   resumable,
+		ContentType: resp.Header.Get("Content-Type"),
+	}, nil
+}
+
+func extractFilename(contentDisposition, urlPath string) string {
+	if contentDisposition != "" {
+		if _, params, err := mime.ParseMediaType(contentDisposition); err == nil {
+			if fn, ok := params["filename*"]; ok {
+				parts := strings.SplitN(fn, "''", 2)
+				if len(parts) == 2 {
+					if unesc, err := url.PathUnescape(parts[1]); err == nil {
+						return unesc
+					}
+				}
+			}
+			if fn, ok := params["filename"]; ok && fn != "" {
+				return fn
+			}
+		}
+	}
+
+	base := filepath.Base(urlPath)
+	if base == "." || base == "/" || base == "" {
+		return "download.bin"
+	}
+	if unesc, err := url.PathUnescape(base); err == nil {
+		return unesc
+	}
+	return base
+}
+
+// SanitizeFilename cleans invalid filesystem characters from filenames.
+func SanitizeFilename(name string) string {
+	invalidChars := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|"}
+	clean := name
+	for _, c := range invalidChars {
+		clean = strings.ReplaceAll(clean, c, "_")
+	}
+	clean = strings.TrimSpace(clean)
+	if clean == "" {
+		return "download.bin"
+	}
+	return clean
+}

@@ -1,1 +1,1 @@
-# Keeps frontend/dist folder in git so go:embed succeeds on initial clone
+# Keeps frontend/dist tracked in git for go:embed

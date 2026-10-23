@@ -1,45 +1,56 @@
-package db
+package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sync"
 	"time"
 
 	"candak/internal/models"
+	"candak/internal/storage"
 
 	_ "modernc.org/sqlite"
 )
 
-type Database struct {
+// Storage provides a thread-safe SQLite implementation of storage.Repository.
+type Storage struct {
 	db *sql.DB
 	mu sync.RWMutex
 }
 
-func InitDB(dbPath string) (*Database, error) {
-	conn, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+var _ storage.Repository = (*Storage)(nil)
+
+// New creates and initializes a new SQLite repository with schema migrations.
+func New(dbPath string) (*Storage, error) {
+	dsn := fmt.Sprintf("%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)", dbPath)
+	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
+		return nil, fmt.Errorf("failed to open sqlite connection: %w", err)
 	}
 
-	conn.SetMaxOpenConns(1) // SQLite works best with 1 open conn for writes
+	// SQLite operates most reliably with a single writer connection pool
+	conn.SetMaxOpenConns(1)
 
-	d := &Database{db: conn}
-	if err := d.migrate(); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("database migration failed: %w", err)
+	s := &Storage{db: conn}
+	if err := s.migrate(context.Background()); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("failed to run database migration: %w", err)
 	}
 
-	return d, nil
+	return s, nil
 }
 
-func (d *Database) Close() error {
-	return d.db.Close()
+// Close closes the underlying database pool.
+func (s *Storage) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.db.Close()
 }
 
-func (d *Database) migrate() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (s *Storage) migrate(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	schema := `
 	CREATE TABLE IF NOT EXISTS downloads (
@@ -84,13 +95,14 @@ func (d *Database) migrate() error {
 	CREATE INDEX IF NOT EXISTS idx_url_history_last_used ON url_history(last_used_at DESC);
 	`
 
-	_, err := d.db.Exec(schema)
+	_, err := s.db.ExecContext(ctx, schema)
 	return err
 }
 
-func (d *Database) InsertDownload(dl *models.Download) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// InsertDownload saves a new download record.
+func (s *Storage) InsertDownload(ctx context.Context, dl *models.Download) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	dl.CreatedAt = now
@@ -102,10 +114,12 @@ func (d *Database) InsertDownload(dl *models.Download) error {
 	}
 
 	query := `
-	INSERT INTO downloads (id, url, filename, save_path, total_size, downloaded_size, status, resumable, total_chunks, speed, eta, error_message, created_at, updated_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	INSERT INTO downloads (
+		id, url, filename, save_path, total_size, downloaded_size, status,
+		resumable, total_chunks, speed, eta, error_message, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err := d.db.Exec(query,
+	_, err := s.db.ExecContext(ctx, query,
 		dl.ID,
 		dl.URL,
 		dl.Filename,
@@ -124,9 +138,10 @@ func (d *Database) InsertDownload(dl *models.Download) error {
 	return err
 }
 
-func (d *Database) UpdateDownloadProgress(id string, downloadedSize int64, speed int64, eta int64, status models.DownloadStatus) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// UpdateDownloadProgress updates byte counter, transfer speed, and ETA.
+func (s *Storage) UpdateDownloadProgress(ctx context.Context, id string, downloadedSize int64, speed int64, eta int64, status models.DownloadStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	query := `
@@ -134,13 +149,14 @@ func (d *Database) UpdateDownloadProgress(id string, downloadedSize int64, speed
 	SET downloaded_size = ?, speed = ?, eta = ?, status = ?, updated_at = ?
 	WHERE id = ?
 	`
-	_, err := d.db.Exec(query, downloadedSize, speed, eta, string(status), now, id)
+	_, err := s.db.ExecContext(ctx, query, downloadedSize, speed, eta, string(status), now, id)
 	return err
 }
 
-func (d *Database) UpdateDownloadStatus(id string, status models.DownloadStatus, errMsg string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// UpdateDownloadStatus updates the download's operational status and error text.
+func (s *Storage) UpdateDownloadStatus(ctx context.Context, id string, status models.DownloadStatus, errMsg string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	query := `
@@ -148,20 +164,22 @@ func (d *Database) UpdateDownloadStatus(id string, status models.DownloadStatus,
 	SET status = ?, error_message = ?, updated_at = ?
 	WHERE id = ?
 	`
-	_, err := d.db.Exec(query, string(status), errMsg, now, id)
+	_, err := s.db.ExecContext(ctx, query, string(status), errMsg, now, id)
 	return err
 }
 
-func (d *Database) GetDownload(id string) (*models.Download, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+// GetDownload retrieves a single download by ID, including its associated chunks.
+func (s *Storage) GetDownload(ctx context.Context, id string) (*models.Download, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	query := `
-	SELECT id, url, filename, save_path, total_size, downloaded_size, status, resumable, total_chunks, speed, eta, error_message, created_at, updated_at
+	SELECT id, url, filename, save_path, total_size, downloaded_size, status,
+	       resumable, total_chunks, speed, eta, error_message, created_at, updated_at
 	FROM downloads
 	WHERE id = ?
 	`
-	row := d.db.QueryRow(query, id)
+	row := s.db.QueryRowContext(ctx, query, id)
 
 	var dl models.Download
 	var resumableInt int
@@ -184,13 +202,16 @@ func (d *Database) GetDownload(id string) (*models.Download, error) {
 		&dl.UpdatedAt,
 	)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, models.ErrDownloadNotFound
+		}
 		return nil, err
 	}
 
 	dl.Status = models.DownloadStatus(statusStr)
 	dl.Resumable = resumableInt == 1
 
-	chunks, err := d.getChunksInternal(id)
+	chunks, err := s.getChunksInternal(ctx, id)
 	if err == nil {
 		dl.Chunks = chunks
 	}
@@ -198,16 +219,18 @@ func (d *Database) GetDownload(id string) (*models.Download, error) {
 	return &dl, nil
 }
 
-func (d *Database) GetAllDownloads() ([]*models.Download, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+// GetAllDownloads retrieves all downloads ordered chronologically descending.
+func (s *Storage) GetAllDownloads(ctx context.Context) ([]*models.Download, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	query := `
-	SELECT id, url, filename, save_path, total_size, downloaded_size, status, resumable, total_chunks, speed, eta, error_message, created_at, updated_at
+	SELECT id, url, filename, save_path, total_size, downloaded_size, status,
+	       resumable, total_chunks, speed, eta, error_message, created_at, updated_at
 	FROM downloads
 	ORDER BY created_at DESC
 	`
-	rows, err := d.db.Query(query)
+	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +264,7 @@ func (d *Database) GetAllDownloads() ([]*models.Download, error) {
 		dl.Status = models.DownloadStatus(statusStr)
 		dl.Resumable = resumableInt == 1
 
-		chunks, _ := d.getChunksInternal(dl.ID)
+		chunks, _ := s.getChunksInternal(ctx, dl.ID)
 		dl.Chunks = chunks
 
 		downloads = append(downloads, &dl)
@@ -250,37 +273,39 @@ func (d *Database) GetAllDownloads() ([]*models.Download, error) {
 	return downloads, nil
 }
 
-func (d *Database) DeleteDownload(id string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// DeleteDownload removes a download record and cascades chunk deletion.
+func (s *Storage) DeleteDownload(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	tx, err := d.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("DELETE FROM chunks WHERE download_id = ?", id); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM chunks WHERE download_id = ?", id); err != nil {
 		return err
 	}
-	if _, err := tx.Exec("DELETE FROM downloads WHERE id = ?", id); err != nil {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM downloads WHERE id = ?", id); err != nil {
 		return err
 	}
 
 	return tx.Commit()
 }
 
-func (d *Database) SaveChunks(chunks []*models.Chunk) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// SaveChunks transactionally inserts or updates a slice of chunk records.
+func (s *Storage) SaveChunks(ctx context.Context, chunks []*models.Chunk) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	tx, err := d.db.Begin()
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.Prepare(`
+	stmt, err := tx.PrepareContext(ctx, `
 	INSERT INTO chunks (id, download_id, chunk_index, start_offset, end_offset, current_offset, status)
 	VALUES (?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
@@ -293,7 +318,7 @@ func (d *Database) SaveChunks(chunks []*models.Chunk) error {
 	defer stmt.Close()
 
 	for _, c := range chunks {
-		if _, err := stmt.Exec(c.ID, c.DownloadID, c.ChunkIndex, c.StartOffset, c.EndOffset, c.CurrentOffset, string(c.Status)); err != nil {
+		if _, err := stmt.ExecContext(ctx, c.ID, c.DownloadID, c.ChunkIndex, c.StartOffset, c.EndOffset, c.CurrentOffset, string(c.Status)); err != nil {
 			return err
 		}
 	}
@@ -301,29 +326,31 @@ func (d *Database) SaveChunks(chunks []*models.Chunk) error {
 	return tx.Commit()
 }
 
-func (d *Database) UpdateChunkOffset(chunkID string, currentOffset int64, status models.ChunkStatus) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// UpdateChunkOffset persists a chunk's progress offset and status.
+func (s *Storage) UpdateChunkOffset(ctx context.Context, chunkID string, currentOffset int64, status models.ChunkStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	query := `UPDATE chunks SET current_offset = ?, status = ? WHERE id = ?`
-	_, err := d.db.Exec(query, currentOffset, string(status), chunkID)
+	_, err := s.db.ExecContext(ctx, query, currentOffset, string(status), chunkID)
 	return err
 }
 
-func (d *Database) GetChunks(downloadID string) ([]*models.Chunk, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.getChunksInternal(downloadID)
+// GetChunks retrieves all chunks assigned to a download ID in ascending index order.
+func (s *Storage) GetChunks(ctx context.Context, downloadID string) ([]*models.Chunk, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getChunksInternal(ctx, downloadID)
 }
 
-func (d *Database) getChunksInternal(downloadID string) ([]*models.Chunk, error) {
+func (s *Storage) getChunksInternal(ctx context.Context, downloadID string) ([]*models.Chunk, error) {
 	query := `
 	SELECT id, download_id, chunk_index, start_offset, end_offset, current_offset, status
 	FROM chunks
 	WHERE download_id = ?
 	ORDER BY chunk_index ASC
 	`
-	rows, err := d.db.Query(query, downloadID)
+	rows, err := s.db.QueryContext(ctx, query, downloadID)
 	if err != nil {
 		return nil, err
 	}
@@ -343,9 +370,10 @@ func (d *Database) getChunksInternal(downloadID string) ([]*models.Chunk, error)
 	return chunks, nil
 }
 
-func (d *Database) RecordURLHistory(urlStr, filename string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// RecordURLHistory inserts or increments the usage of a URL.
+func (s *Storage) RecordURLHistory(ctx context.Context, urlStr, filename string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	query := `
@@ -356,13 +384,14 @@ func (d *Database) RecordURLHistory(urlStr, filename string) error {
 		last_used_at = excluded.last_used_at,
 		download_count = url_history.download_count + 1
 	`
-	_, err := d.db.Exec(query, urlStr, filename, now)
+	_, err := s.db.ExecContext(ctx, query, urlStr, filename, now)
 	return err
 }
 
-func (d *Database) GetURLHistory(limit int) ([]*models.URLHistoryItem, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
+// GetURLHistory retrieves the most recently used URLs up to the specified limit.
+func (s *Storage) GetURLHistory(ctx context.Context, limit int) ([]*models.URLHistoryItem, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	if limit <= 0 {
 		limit = 50
@@ -374,7 +403,7 @@ func (d *Database) GetURLHistory(limit int) ([]*models.URLHistoryItem, error) {
 	ORDER BY last_used_at DESC
 	LIMIT ?
 	`
-	rows, err := d.db.Query(query, limit)
+	rows, err := s.db.QueryContext(ctx, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -391,10 +420,11 @@ func (d *Database) GetURLHistory(limit int) ([]*models.URLHistoryItem, error) {
 	return items, nil
 }
 
-func (d *Database) ClearURLHistory() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+// ClearURLHistory purges all recorded URL history records.
+func (s *Storage) ClearURLHistory(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	_, err := d.db.Exec("DELETE FROM url_history")
+	_, err := s.db.ExecContext(ctx, "DELETE FROM url_history")
 	return err
 }
