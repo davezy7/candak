@@ -23,15 +23,15 @@
     ChevronDown, 
     ChevronUp, 
     ExternalLink, 
-    AlertCircle,
+    Check,
     CheckCircle2,
-    RefreshCw
+    AlertCircle
   } from 'lucide-svelte';
 
   export let download;
   export let onAction = () => {};
 
-  let showChunks = true;
+  let showChunks = false;
   let isActionLoading = false;
 
   $: category = getFileCategory(download.filename);
@@ -64,7 +64,7 @@
   }
 
   async function handleDelete() {
-    const deleteFromDisk = confirm(`Delete "${download.filename}"?\n\nClick OK to also delete the file on disk, or Cancel to just remove it from the list.`);
+    const deleteFromDisk = confirm(`Delete "${download.filename}"?\n\nClick OK to also remove the file from your disk.`);
     try {
       await CancelDownload(download.id, deleteFromDisk);
       onAction();
@@ -90,175 +90,176 @@
   }
 </script>
 
-<div class="bg-slate-900/80 hover:bg-slate-900 border border-slate-800 hover:border-slate-700/80 rounded-xl p-4 transition-all duration-200 shadow-sm hover:shadow-md">
-  <div class="flex items-start justify-between gap-3">
+<div class="bg-white rounded-2xl p-5 border border-[#E2E8F0] shadow-sm hover:shadow-md transition-all duration-200 group">
+  <!-- Top Row -->
+  <div class="flex items-center justify-between gap-4">
     <!-- Icon & Titles -->
-    <div class="flex items-start gap-3 min-w-0 flex-1">
-      <div class="w-10 h-10 rounded-lg bg-slate-800/80 border border-slate-700/60 flex items-center justify-center text-slate-300 shrink-0 mt-0.5">
+    <div class="flex items-center gap-3.5 min-w-0 flex-1">
+      <!-- Squircle File Icon -->
+      <div class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-colors {
+        download.status === 'completed' 
+          ? 'bg-[#F1F5F9] text-[#64748B]' 
+          : 'bg-[#CCFBF1]/60 text-[#0D9488]'
+      }">
         {#if category === 'archive'}
-          <FileArchive size={20} class="text-amber-400" />
+          <FileArchive size={22} strokeWidth={2} />
         {:else if category === 'video'}
-          <FileVideo size={20} class="text-rose-400" />
+          <FileVideo size={22} strokeWidth={2} />
         {:else if category === 'audio'}
-          <FileAudio size={20} class="text-purple-400" />
+          <FileAudio size={22} strokeWidth={2} />
         {:else if category === 'image'}
-          <FileImage size={20} class="text-emerald-400" />
+          <FileImage size={22} strokeWidth={2} />
         {:else if category === 'code'}
-          <FileCode size={20} class="text-cyan-400" />
+          <FileCode size={22} strokeWidth={2} />
         {:else}
-          <FileText size={20} class="text-blue-400" />
+          <FileText size={22} strokeWidth={2} />
         {/if}
       </div>
 
+      <!-- File Name & Subtitle -->
       <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-2">
-          <h4 class="font-semibold text-slate-100 text-sm truncate" title={download.filename}>
-            {download.filename}
-          </h4>
-          
-          <!-- Status Badge -->
+        <h4 class="font-bold text-[#1F2937] text-[15px] truncate leading-tight" title={download.filename}>
+          {download.filename}
+        </h4>
+        
+        <p class="text-xs text-[#64748B] mt-1 font-medium flex items-center gap-1.5 truncate">
           {#if download.status === 'downloading'}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-800/60">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Downloading
-            </span>
-          {:else if download.status === 'paused'}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-950/60 text-amber-400 border border-amber-800/60">
-              Paused
-            </span>
+            <span>{formatBytes(download.totalSize)}</span>
+            <span>·</span>
+            <span>{progress.toFixed(0)}% downloaded</span>
           {:else if download.status === 'completed'}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-950/60 text-cyan-400 border border-cyan-800/60">
-              <CheckCircle2 size={10} />
-              Completed
-            </span>
+            <span>{formatBytes(download.totalSize)}</span>
+            <span>·</span>
+            <span class="text-[#0D9488] font-semibold">Completed</span>
+          {:else if download.status === 'paused'}
+            <span>{formatBytes(download.downloadedSize)} / {formatBytes(download.totalSize)}</span>
+            <span>·</span>
+            <span class="text-[#64748B] font-medium">Paused</span>
           {:else if download.status === 'error'}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-rose-950/60 text-rose-400 border border-rose-800/60">
-              <AlertCircle size={10} />
-              Error
-            </span>
+            <span class="text-rose-600 font-medium">Failed</span>
+            {#if download.errorMessage}
+              <span class="truncate">· {download.errorMessage}</span>
+            {/if}
           {:else}
-            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-400">
-              {download.status}
-            </span>
+            <span>{download.status}</span>
           {/if}
-
-          {#if download.resumable}
-            <span class="text-[10px] font-mono text-slate-400 bg-slate-800/60 px-1.5 py-0.5 rounded border border-slate-700/40">
-              Resume OK
-            </span>
-          {/if}
-        </div>
-
-        <p class="text-xs text-slate-400 truncate mt-0.5 font-mono" title={download.url}>
-          {download.url}
         </p>
       </div>
     </div>
 
     <!-- Actions -->
-    <div class="flex items-center gap-1.5 shrink-0">
+    <div class="flex items-center gap-2 shrink-0">
+      <!-- Hover Actions (Open, Folder, Delete) -->
+      <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+        {#if download.status === 'completed'}
+          <button 
+            on:click={handleOpenFile}
+            class="p-2 text-[#64748B] hover:text-[#0D9488] hover:bg-[#F1F5F9] rounded-xl transition"
+            title="Open File"
+            aria-label="Open File"
+          >
+            <ExternalLink size={16} />
+          </button>
+        {/if}
+
+        <button 
+          on:click={handleShowFolder}
+          class="p-2 text-[#64748B] hover:text-[#0D9488] hover:bg-[#F1F5F9] rounded-xl transition"
+          title="Show in Folder"
+          aria-label="Show in Folder"
+        >
+          <Folder size={16} />
+        </button>
+
+        <button 
+          on:click={handleDelete}
+          class="p-2 text-[#64748B] hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
+          title="Delete Download"
+          aria-label="Delete Download"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
+
+      <!-- Primary Circular Status Action Button (matching reference image) -->
       {#if download.status === 'downloading'}
         <button 
           on:click={handlePause}
           disabled={isActionLoading}
-          class="p-2 text-amber-400 hover:text-amber-300 hover:bg-slate-800 rounded-lg border border-slate-800 hover:border-slate-700 transition"
+          class="w-8 h-8 rounded-full border-2 border-[#0D9488] text-[#0D9488] flex items-center justify-center hover:bg-[#CCFBF1]/30 transition active:scale-95"
           title="Pause Download"
+          aria-label="Pause Download"
         >
-          <Pause size={16} />
+          <Pause size={14} strokeWidth={2.5} />
         </button>
       {:else if download.status === 'paused' || download.status === 'error'}
         <button 
           on:click={handleResume}
           disabled={isActionLoading}
-          class="p-2 text-emerald-400 hover:text-emerald-300 hover:bg-slate-800 rounded-lg border border-slate-800 hover:border-slate-700 transition"
+          class="w-8 h-8 rounded-full border-2 border-[#0D9488] text-[#0D9488] flex items-center justify-center hover:bg-[#CCFBF1]/30 transition active:scale-95"
           title="Resume Download"
+          aria-label="Resume Download"
         >
-          <Play size={16} />
+          <Play size={14} strokeWidth={2.5} class="ml-0.5" />
         </button>
-      {/if}
-
-      {#if download.status === 'completed'}
-        <button 
-          on:click={handleOpenFile}
-          class="p-2 text-cyan-400 hover:text-cyan-300 hover:bg-slate-800 rounded-lg border border-slate-800 hover:border-slate-700 transition"
-          title="Open File"
+      {:else if download.status === 'completed'}
+        <div 
+          class="w-8 h-8 rounded-full border-2 border-[#0D9488] text-[#0D9488] flex items-center justify-center bg-[#CCFBF1]/20"
+          title="Download Completed"
         >
-          <ExternalLink size={16} />
-        </button>
+          <Check size={16} strokeWidth={2.5} />
+        </div>
       {/if}
-
-      <button 
-        on:click={handleShowFolder}
-        class="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg border border-slate-800 hover:border-slate-700 transition"
-        title="Show in Folder"
-      >
-        <Folder size={16} />
-      </button>
-
-      <button 
-        on:click={handleDelete}
-        class="p-2 text-rose-400/80 hover:text-rose-300 hover:bg-rose-950/30 rounded-lg border border-transparent hover:border-rose-900/40 transition"
-        title="Delete Download"
-      >
-        <Trash2 size={16} />
-      </button>
     </div>
   </div>
 
-  <!-- Master Progress Bar -->
-  <div class="mt-3.5 space-y-1.5">
-    <div class="flex justify-between items-center text-xs font-mono">
-      <div class="text-slate-300 flex items-center gap-2">
-        <span>{formatBytes(download.downloadedSize)} / {formatBytes(download.totalSize)}</span>
-        {#if download.totalSize > 0}
-          <span class="text-slate-500">({progress.toFixed(1)}%)</span>
-        {/if}
+  <!-- Progress Bar (Only visible if downloading or paused) -->
+  {#if download.status === 'downloading' || download.status === 'paused'}
+    <div class="mt-4 space-y-2">
+      <!-- Progress Bar Track -->
+      <div class="h-1.5 w-full bg-[#E2E8F0] rounded-full overflow-hidden">
+        <div 
+          class="h-full bg-[#0D9488] rounded-full transition-all duration-300"
+          style="width: {progress}%;"
+        ></div>
       </div>
 
-      <div class="flex items-center gap-3 text-slate-400 text-[11px]">
-        {#if download.status === 'downloading'}
-          <span class="text-cyan-400 font-semibold">{formatSpeed(download.speed)}</span>
-          <span>ETA: {formatETA(download.eta)}</span>
-        {:else if download.status === 'error' && download.errorMessage}
-          <span class="text-rose-400 truncate max-w-xs">{download.errorMessage}</span>
+      <!-- Stats row matching screenshot -->
+      <div class="flex items-center justify-between text-xs font-medium">
+        <span class="text-[#64748B]">
+          {#if download.status === 'downloading'}
+            {formatSpeed(download.speed)}
+          {:else}
+            Paused
+          {/if}
+        </span>
+
+        {#if download.status === 'downloading' && download.eta > 0}
+          <span class="text-[#0D9488] font-semibold">
+            {formatETA(download.eta)}
+          </span>
         {/if}
       </div>
     </div>
+  {/if}
 
-    <!-- Progress Track -->
-    <div class="h-2 w-full bg-slate-950 rounded-full overflow-hidden border border-slate-800/80">
-      <div 
-        class="h-full transition-all duration-300 rounded-full {
-          download.status === 'completed' 
-            ? 'bg-cyan-400' 
-            : download.status === 'error' 
-              ? 'bg-rose-500' 
-              : download.status === 'paused'
-                ? 'bg-amber-400'
-                : 'bg-gradient-to-r from-cyan-500 via-blue-500 to-indigo-500'
-        }"
-        style="width: {progress}%;"
-      ></div>
-    </div>
-  </div>
-
-  <!-- Chunk Offsets Drawer Toggle -->
+  <!-- Chunks Drawer Button (Compact) -->
   {#if download.chunks && download.chunks.length > 0}
-    <div class="mt-2.5 flex items-center justify-between">
+    <div class="mt-2 pt-2 flex items-center justify-between text-[11px] text-[#64748B]">
       <button 
         on:click={() => showChunks = !showChunks}
-        class="text-[11px] text-slate-400 hover:text-cyan-400 flex items-center gap-1 transition"
+        class="hover:text-[#0D9488] flex items-center gap-1 font-medium transition"
       >
         {#if showChunks}
           <ChevronUp size={12} />
-          Hide Chunk Offsets ({download.chunks.length} parts)
+          Hide {download.chunks.length} Chunks
         {:else}
           <ChevronDown size={12} />
-          Show Chunk Offsets ({download.chunks.length} parts)
+          View {download.chunks.length} Chunks
         {/if}
       </button>
 
-      <span class="text-[10px] text-slate-500 font-mono truncate max-w-xs" title={download.savePath}>
+      <span class="text-[10px] text-[#64748B]/70 truncate max-w-[200px]" title={download.savePath}>
         {download.savePath}
       </span>
     </div>

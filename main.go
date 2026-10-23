@@ -16,7 +16,7 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
-	// Create application with options
+	// Create application with options matching the light theme palette
 	err := wails.Run(&options.App{
 		Title:     "Candak Download Manager",
 		Width:     1080,
@@ -26,7 +26,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour:         &options.RGBA{R: 11, G: 15, B: 23, A: 1},
+		BackgroundColour:         &options.RGBA{R: 245, G: 250, B: 250, A: 1}, // #F5FAFA
 		OnStartup:                app.startup,
 		OnShutdown:               app.shutdown,
 		EnableDefaultContextMenu: true,
@@ -35,7 +35,7 @@ func main() {
 		},
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarDefault(),
-			Appearance:           mac.NSAppearanceNameDarkAqua,
+			Appearance:           mac.NSAppearanceNameAqua, // Light theme matching the design
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
 		},

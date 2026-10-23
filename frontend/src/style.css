@@ -1,7 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: dark;
+  --color-bg: #F5FAFA;
+  --color-surface: #FFFFFF;
+  --color-accent: #0D9488;
+  --color-accent-light: #CCFBF1;
+  --color-text: #1F2937;
+  --color-secondary: #64748B;
+  --color-border: #E2E8F0;
+  color-scheme: light;
 }
 
 html, body, #app {
@@ -9,8 +16,8 @@ html, body, #app {
   width: 100%;
   margin: 0;
   padding: 0;
-  background-color: #0b0f17;
-  color: #f1f5f9;
+  background-color: #F5FAFA;
+  color: #1F2937;
 }
 
 body {
@@ -20,7 +27,7 @@ body {
   overflow: hidden;
 }
 
-/* Custom sleek scrollbar */
+/* Custom sleek scrollbar for light theme */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -31,10 +38,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
-  border-radius: 3px;
+  background: rgba(100, 116, 139, 0.2);
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: rgba(100, 116, 139, 0.35);
 }

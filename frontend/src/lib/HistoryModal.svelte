@@ -60,41 +60,41 @@
 
 {#if isOpen}
   <div 
-    class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+    class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4"
     role="presentation"
     on:click|self={onClose}
     on:keydown={handleKeydown}
   >
     <div 
-      class="bg-slate-900 border border-slate-700/80 rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[80vh]"
+      class="bg-white border border-[#E2E8F0] rounded-3xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[80vh]"
       role="dialog"
       aria-modal="true"
       aria-labelledby="history-modal-title"
     >
       <!-- Header -->
-      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-            <History size={18} />
+      <div class="px-6 py-5 border-b border-[#E2E8F0] flex items-center justify-between bg-[#F8FAFC]">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-2xl bg-[#CCFBF1] flex items-center justify-center text-[#0D9488]">
+            <History size={20} strokeWidth={2.5} />
           </div>
           <div>
-            <h3 id="history-modal-title" class="font-semibold text-slate-100 text-sm">URL History</h3>
-            <p class="text-xs text-slate-400">Past download targets recorded in SQLite database</p>
+            <h3 id="history-modal-title" class="font-bold text-[#1F2937] text-base">URL History</h3>
+            <p class="text-xs text-[#64748B]">Past download targets recorded in SQLite</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
           {#if historyItems.length > 0}
             <button 
               on:click={handleClear}
-              class="px-2.5 py-1 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-950/40 border border-rose-900/40 rounded-md transition flex items-center gap-1"
+              class="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-xl transition flex items-center gap-1.5 font-medium"
             >
-              <Trash2 size={12} />
+              <Trash2 size={13} />
               Clear All
             </button>
           {/if}
           <button 
             on:click={onClose}
-            class="text-slate-400 hover:text-slate-200 p-1 rounded-md hover:bg-slate-800 transition"
+            class="text-[#64748B] hover:text-[#1F2937] p-1.5 rounded-xl hover:bg-[#E2E8F0]/60 transition"
             aria-label="Close dialog"
           >
             <X size={18} />
@@ -103,52 +103,52 @@
       </div>
 
       <!-- Content -->
-      <div class="p-5 overflow-y-auto flex-1 space-y-2">
+      <div class="p-6 overflow-y-auto flex-1 space-y-2.5">
         {#if isLoading}
-          <div class="py-12 text-center text-slate-400 text-xs">
-            <span class="inline-block w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mb-2"></span>
+          <div class="py-12 text-center text-[#64748B] text-xs">
+            <span class="inline-block w-5 h-5 border-2 border-[#0D9488] border-t-transparent rounded-full animate-spin mb-2"></span>
             <div>Loading history...</div>
           </div>
         {:else if historyItems.length === 0}
-          <div class="py-16 text-center text-slate-500 text-xs">
-            <History size={32} class="mx-auto mb-2 opacity-40 text-slate-400" />
-            <div>No previous downloads recorded in URL history yet.</div>
+          <div class="py-16 text-center text-[#64748B] text-xs">
+            <History size={36} class="mx-auto mb-2 text-[#CBD5E1]" />
+            <div class="text-[#64748B] font-medium">No previous downloads in history yet.</div>
           </div>
         {:else}
           {#each historyItems as item}
-            <div class="p-3 bg-slate-950/50 hover:bg-slate-950/90 border border-slate-800/80 rounded-lg flex items-center justify-between gap-4 transition group">
+            <div class="p-4 bg-[#F8FAFC] hover:bg-[#F1F5F9] border border-[#E2E8F0] rounded-2xl flex items-center justify-between gap-4 transition group">
               <div class="min-w-0 flex-1">
-                <div class="font-medium text-xs text-slate-200 truncate">
+                <div class="font-bold text-sm text-[#1F2937] truncate">
                   {item.filename || 'Unknown filename'}
                 </div>
-                <div class="text-[11px] font-mono text-cyan-400/80 truncate mt-0.5">
+                <div class="text-xs font-mono text-[#0D9488] truncate mt-0.5">
                   {item.url}
                 </div>
-                <div class="text-[10px] text-slate-500 mt-1 flex items-center gap-3">
+                <div class="text-[11px] text-[#64748B] mt-1.5 flex items-center gap-3">
                   <span>Last downloaded: {formatDate(item.lastUsedAt)}</span>
                   <span>•</span>
-                  <span>Times: {item.downloadCount}</span>
+                  <span>Downloaded {item.downloadCount} {item.downloadCount === 1 ? 'time' : 'times'}</span>
                 </div>
               </div>
 
-              <div class="flex items-center gap-1.5 shrink-0">
+              <div class="flex items-center gap-2 shrink-0">
                 <button 
                   on:click={() => copyToClipboard(item)}
-                  class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-md border border-transparent hover:border-slate-700 transition"
+                  class="p-2 text-[#64748B] hover:text-[#1F2937] hover:bg-white rounded-xl border border-transparent hover:border-[#E2E8F0] shadow-2xs transition"
                   title="Copy URL"
                   aria-label="Copy URL"
                 >
                   {#if copiedId === item.id}
-                    <Check size={14} class="text-emerald-400" />
+                    <Check size={16} class="text-[#0D9488]" strokeWidth={2.5} />
                   {:else}
-                    <Copy size={14} />
+                    <Copy size={16} />
                   {/if}
                 </button>
                 <button 
                   on:click={() => handleReDownload(item.url)}
-                  class="px-2.5 py-1 text-xs bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-800/60 rounded-md transition flex items-center gap-1"
+                  class="px-3 py-1.5 text-xs font-semibold bg-[#CCFBF1] hover:bg-[#0D9488] text-[#0D9488] hover:text-white rounded-xl transition flex items-center gap-1.5 shadow-2xs"
                 >
-                  <DownloadCloud size={12} />
+                  <DownloadCloud size={14} />
                   Download
                 </button>
               </div>

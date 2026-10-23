@@ -1,4 +1,4 @@
-export function formatBytes(bytes, decimals = 2) {
+export function formatBytes(bytes, decimals = 1) {
   if (bytes === null || bytes === undefined || isNaN(bytes)) return '0 B';
   if (bytes === 0) return '0 B';
   if (bytes < 0) return 'Unknown';
@@ -20,16 +20,18 @@ export function formatSpeed(bytesPerSec) {
 }
 
 export function formatETA(seconds) {
-  if (seconds === null || seconds === undefined || seconds <= 0 || !isFinite(seconds)) return '--';
-  if (seconds < 60) return `${Math.floor(seconds)}s`;
-  if (seconds < 3600) {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}m ${secs}s`;
+  if (seconds === null || seconds === undefined || seconds <= 0 || !isFinite(seconds)) return '';
+  const totalSecs = Math.floor(seconds);
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  const pad = (n) => n.toString().padStart(2, '0');
+
+  if (totalSecs < 3600) {
+    return `${pad(mins)}:${pad(secs)} remaining`;
   }
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  return `${hours}h ${mins}m`;
+  const hours = Math.floor(totalSecs / 3600);
+  const remMins = Math.floor((totalSecs % 3600) / 60);
+  return `${pad(hours)}:${pad(remMins)}:${pad(secs)} remaining`;
 }
 
 export function formatDate(dateString) {
