@@ -26,14 +26,15 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 11, G: 15, B: 23, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
+		BackgroundColour:         &options.RGBA{R: 11, G: 15, B: 23, A: 1},
+		OnStartup:                app.startup,
+		OnShutdown:               app.shutdown,
+		EnableDefaultContextMenu: true,
 		Bind: []interface{}{
 			app,
 		},
 		Mac: &mac.Options{
-			TitleBar:             mac.TitleBarHiddenInset(),
+			TitleBar:             mac.TitleBarDefault(),
 			Appearance:           mac.NSAppearanceNameDarkAqua,
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,
