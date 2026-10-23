@@ -104,7 +104,6 @@ go test -v ./...
 
 - [User Guide & IPC Reference](docs/USAGE.md)
 - [Architecture & Design Decisions](docs/ARCHITECTURE.md)
-- [System Glossary](GLOSSARY.md)
 
 ---
 
