@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -59,9 +60,19 @@ func NewManager(cfg Config) *Manager {
 		client = &http.Client{
 			Timeout: 0,
 			Transport: &http.Transport{
-				MaxIdleConns:        100,
-				MaxIdleConnsPerHost: 20,
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:   true,
+				MaxIdleConns:        256,
+				MaxIdleConnsPerHost: 64,
 				IdleConnTimeout:     90 * time.Second,
+				TLSHandshakeTimeout: 10 * time.Second,
+				DisableCompression:  true,
+				WriteBufferSize:     128 * 1024,
+				ReadBufferSize:      128 * 1024,
 			},
 		}
 	}

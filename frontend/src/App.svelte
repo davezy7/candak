@@ -59,14 +59,14 @@
     unlistenProgress = EventsOn('download:progress', (evt) => {
       const idx = downloads.findIndex(d => d.id === evt.downloadId);
       if (idx !== -1) {
-        downloads[idx].downloadedSize = evt.downloadedSize;
-        downloads[idx].speed = evt.speed;
-        downloads[idx].eta = evt.eta;
-        downloads[idx].status = evt.status;
-        if (evt.chunks) {
-          downloads[idx].chunks = evt.chunks;
-        }
-        downloads = [...downloads];
+        downloads[idx] = {
+          ...downloads[idx],
+          downloadedSize: evt.downloadedSize,
+          speed: evt.speed,
+          eta: evt.eta,
+          status: evt.status,
+          chunks: evt.chunks || downloads[idx].chunks
+        };
       }
     });
 

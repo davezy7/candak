@@ -5,11 +5,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"candak/internal/models"
 )
+
+const workerBufferSize = 256 * 1024 // 256 KB buffer for high-throughput reads
+
+var bufferPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, workerBufferSize)
+		return &b
+	},
+}
 
 // ChunkOffsetPersister defines a callback function to persist updated chunk offsets.
 type ChunkOffsetPersister func(ctx context.Context, chunkID string, currentOffset int64, status models.ChunkStatus) error
@@ -83,7 +93,9 @@ func (w *ChunkWorker) Download(
 		}
 	}()
 
-	buf := make([]byte, 64*1024) // 64 KB buffer
+	bufPtr := bufferPool.Get().(*[]byte)
+	defer bufferPool.Put(bufPtr)
+	buf := *bufPtr
 	lastPersisted := time.Now()
 
 	var bodyReader io.Reader = resp.Body
@@ -110,8 +122,8 @@ func (w *ChunkWorker) Download(
 			chunk.CurrentOffset += int64(n)
 			atomic.AddInt64(totalCounter, int64(n))
 
-			// Periodically save chunk offset to database (every 1 second)
-			if time.Since(lastPersisted) > 1*time.Second {
+			// Periodically save chunk offset to database (every 3 seconds)
+			if time.Since(lastPersisted) > 3*time.Second {
 				if persist != nil {
 					_ = persist(ctx, chunk.ID, chunk.CurrentOffset, models.ChunkStatusDownloading)
 				}
