@@ -54,12 +54,13 @@ type Download struct {
 	Status         DownloadStatus `json:"status"`
 	Resumable      bool           `json:"resumable"`
 	TotalChunks    int            `json:"totalChunks"`
-	Speed          int64          `json:"speed"` // Bytes per second
-	ETA            int64          `json:"eta"`   // Estimated remaining seconds
-	ErrorMessage   string         `json:"errorMessage"`
-	CreatedAt      string         `json:"createdAt"`
-	UpdatedAt      string         `json:"updatedAt"`
-	Chunks         []*Chunk       `json:"chunks,omitempty"`
+	Speed          int64             `json:"speed"` // Bytes per second
+	ETA            int64             `json:"eta"`   // Estimated remaining seconds
+	ErrorMessage   string            `json:"errorMessage"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	CreatedAt      string            `json:"createdAt"`
+	UpdatedAt      string            `json:"updatedAt"`
+	Chunks         []*Chunk          `json:"chunks,omitempty"`
 }
 
 // URLHistoryItem represents a recorded URL entry in the SQLite history log.
@@ -73,19 +74,28 @@ type URLHistoryItem struct {
 
 // ProbeResult contains metadata obtained from an HTTP inspection request.
 type ProbeResult struct {
-	URL         string `json:"url"`
-	Filename    string `json:"filename"`
-	TotalSize   int64  `json:"totalSize"`
-	Resumable   bool   `json:"resumable"`
-	ContentType string `json:"contentType"`
+	URL         string            `json:"url"`
+	Filename    string            `json:"filename"`
+	TotalSize   int64             `json:"totalSize"`
+	Resumable   bool              `json:"resumable"`
+	ContentType string            `json:"contentType"`
+	Headers     map[string]string `json:"headers,omitempty"`
 }
 
 // AddDownloadRequest holds the parameters for initializing a new download task.
 type AddDownloadRequest struct {
-	URL         string `json:"url"`
-	Filename    string `json:"filename"`
-	SaveDir     string `json:"saveDir"`
-	Connections int    `json:"connections"`
+	URL         string            `json:"url"`
+	Filename    string            `json:"filename"`
+	SaveDir     string            `json:"saveDir"`
+	Connections int               `json:"connections"`
+	Headers     map[string]string `json:"headers,omitempty"`
+}
+
+// GrabRequest represents a download request forwarded from a browser extension or external caller.
+type GrabRequest struct {
+	URL      string            `json:"url"`
+	Filename string            `json:"filename,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
 }
 
 // ProgressEvent is emitted via the event bus to report real-time progress.

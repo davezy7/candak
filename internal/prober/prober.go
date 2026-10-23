@@ -18,6 +18,8 @@ import (
 type URLProber interface {
 	// Probe sends an inspection request and returns the ProbeResult.
 	Probe(ctx context.Context, rawURL string) (*models.ProbeResult, error)
+	// ProbeWithHeaders sends an inspection request with custom headers and returns the ProbeResult.
+	ProbeWithHeaders(ctx context.Context, rawURL string, headers map[string]string) (*models.ProbeResult, error)
 }
 
 // HTTPProber implements URLProber using standard HTTP client requests.
@@ -57,8 +59,13 @@ func NewHTTPProber(opts ...Option) *HTTPProber {
 	return p
 }
 
-// Probe inspects a remote URL via HEAD or range GET fallback.
+// Probe inspects a remote URL via HEAD or range GET fallback without custom headers.
 func (p *HTTPProber) Probe(ctx context.Context, rawURL string) (*models.ProbeResult, error) {
+	return p.ProbeWithHeaders(ctx, rawURL, nil)
+}
+
+// ProbeWithHeaders inspects a remote URL via HEAD or range GET fallback with optional headers.
+func (p *HTTPProber) ProbeWithHeaders(ctx context.Context, rawURL string, headers map[string]string) (*models.ProbeResult, error) {
 	parsedURL, err := url.ParseRequestURI(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", models.ErrInvalidURL, err)
@@ -72,6 +79,9 @@ func (p *HTTPProber) Probe(ctx context.Context, rawURL string) (*models.ProbeRes
 		return nil, err
 	}
 	req.Header.Set("User-Agent", p.userAgent)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := p.client.Do(req)
 	// If HEAD request fails or receives an error status code, fallback to range GET (bytes=0-0)
@@ -86,6 +96,12 @@ func (p *HTTPProber) Probe(ctx context.Context, rawURL string) (*models.ProbeRes
 		}
 		getReq.Header.Set("User-Agent", p.userAgent)
 		getReq.Header.Set("Range", "bytes=0-0")
+		for k, v := range headers {
+			if strings.EqualFold(k, "Range") {
+				continue
+			}
+			getReq.Header.Set(k, v)
+		}
 
 		resp, err = p.client.Do(getReq)
 		if err != nil {
@@ -123,6 +139,7 @@ func (p *HTTPProber) Probe(ctx context.Context, rawURL string) (*models.ProbeRes
 		TotalSize:   totalSize,
 		Resumable:   resumable,
 		ContentType: resp.Header.Get("Content-Type"),
+		Headers:     headers,
 	}, nil
 }
 

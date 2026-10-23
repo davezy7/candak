@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,12 +54,19 @@ func (w *ChunkWorker) Download(
 	writer io.WriterAt,
 	totalCounter *int64,
 	persist ChunkOffsetPersister,
+	headers map[string]string,
 ) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("User-Agent", w.userAgent)
+	for k, v := range headers {
+		if strings.EqualFold(k, "Range") {
+			continue
+		}
+		req.Header.Set(k, v)
+	}
 
 	rangeRequested := resumable && chunk.EndOffset > 0
 	if rangeRequested {

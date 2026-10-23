@@ -8,6 +8,8 @@ export function CancelDownload(arg1:string,arg2:boolean):Promise<void>;
 
 export function ClearURLHistory():Promise<void>;
 
+export function ClosePromptWindow(arg1:boolean,arg2:string,arg3:number):Promise<void>;
+
 export function DeleteURLHistoryItem(arg1:number):Promise<void>;
 
 export function GetChunks(arg1:string):Promise<Array<models.Chunk>>;
@@ -16,18 +18,36 @@ export function GetDefaultDownloadDir():Promise<string>;
 
 export function GetDownloads():Promise<Array<models.Download>>;
 
+export function GetExtensionDir():Promise<string>;
+
+export function GetLoopbackStatus():Promise<Record<string, any>>;
+
 export function GetURLHistory():Promise<Array<models.URLHistoryItem>>;
+
+export function HandleGrabRequest(arg1:models.GrabRequest):Promise<void>;
+
+export function IsClipboardWatching():Promise<boolean>;
+
+export function NotifyDesktop(arg1:string,arg2:string):Promise<void>;
 
 export function OpenFile(arg1:string):Promise<void>;
 
 export function OpenFolder(arg1:string):Promise<void>;
 
+export function OpenMainWindow():Promise<void>;
+
 export function PauseDownload(arg1:string):Promise<void>;
 
 export function ProbeURL(arg1:string):Promise<models.ProbeResult>;
+
+export function ProbeURLWithHeaders(arg1:string,arg2:Record<string, string>):Promise<models.ProbeResult>;
 
 export function ResumeDownload(arg1:string):Promise<void>;
 
 export function SelectDirectory():Promise<string>;
 
+export function SetClipboardWatching(arg1:boolean):Promise<boolean>;
+
 export function ShowInFolder(arg1:string):Promise<void>;
+
+export function SuppressClipboardURL(arg1:string):Promise<void>;

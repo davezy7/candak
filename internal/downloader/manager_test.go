@@ -148,7 +148,7 @@ func TestWorkerRangeIgnoredRejection(t *testing.T) {
 
 	// WriterAt adapter for buffer
 	writer := &testWriterAt{buf: make([]byte, 300)}
-	err := worker.Download(context.Background(), server.URL, true, chunk, writer, &totalCounter, nil)
+	err := worker.Download(context.Background(), server.URL, true, chunk, writer, &totalCounter, nil, nil)
 	if err == nil {
 		t.Fatalf("Expected error when server returns HTTP 200 for a range request at offset > 0, got nil")
 	}

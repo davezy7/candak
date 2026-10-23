@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { GetDownloads, OpenFolder, GetDefaultDownloadDir } from '@wails/go/main/App.js';
+  import { GetDownloads, OpenFolder, GetDefaultDownloadDir, SetClipboardWatching } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
   import { formatBytes, formatSpeed } from './lib/formatters.js';
   import { theme, toggleTheme } from './lib/theme.js';
@@ -30,12 +30,16 @@
   let isHistoryModalOpen = false;
   let isSettingsModalOpen = false;
   let initialUrlForModal = '';
+  let grabbedData = null;
+  let isStandalonePrompt = false;
   let activeTab = 'downloads'; // 'downloads' | 'files'
   let defaultDownloadDir = '';
   let currentTheme = 'system';
   let unlistenProgress = null;
   let unlistenStatus = null;
   let unlistenDeleted = null;
+  let unlistenGrabbed = null;
+  let unlistenPromptMode = null;
 
   onMount(async () => {
     theme.subscribe((t) => {
@@ -51,6 +55,16 @@
       }
     } catch (e) {
       console.error(e);
+    }
+
+    // Sync clipboard watcher state from saved preference
+    const savedClipboard = localStorage.getItem('candak_clipboard_watching') === 'true';
+    if (savedClipboard) {
+      try {
+        await SetClipboardWatching(true);
+      } catch (err) {
+        console.error('Failed to initialize clipboard watcher:', err);
+      }
     }
 
     await fetchDownloads();
@@ -83,12 +97,38 @@
     unlistenDeleted = EventsOn('download:deleted', (id) => {
       downloads = downloads.filter(d => d.id !== id);
     });
+
+    // Listen for downloads grabbed from browser extension or clipboard
+    unlistenGrabbed = EventsOn('download:grabbed', (data) => {
+      isStandalonePrompt = true;
+      grabbedData = data;
+      initialUrlForModal = data.url || '';
+      isAddModalOpen = true;
+    });
+
+    // Listen for standalone prompt mode
+    unlistenPromptMode = EventsOn('download:prompt_mode', (evt) => {
+      if (evt && evt.standalone) {
+        isStandalonePrompt = true;
+        if (evt.data) {
+          grabbedData = evt.data;
+          initialUrlForModal = evt.data.url || '';
+        }
+        isAddModalOpen = true;
+      } else {
+        isStandalonePrompt = false;
+        isAddModalOpen = false;
+        grabbedData = null;
+      }
+    });
   });
 
   onDestroy(() => {
     if (unlistenProgress) unlistenProgress();
     if (unlistenStatus) unlistenStatus();
     if (unlistenDeleted) unlistenDeleted();
+    if (unlistenGrabbed) unlistenGrabbed();
+    if (unlistenPromptMode) unlistenPromptMode();
   });
 
   async function fetchDownloads() {
@@ -137,6 +177,23 @@
   });
 </script>
 
+{#if isStandalonePrompt}
+  <!-- Standalone Mini Prompt Window (Decoupled from Dashboard) -->
+  <div class="w-screen h-screen bg-[var(--color-surface)] text-[var(--color-text)] flex flex-col overflow-hidden select-none font-sans">
+    <AddDownloadModal 
+      isOpen={true} 
+      isStandalone={true}
+      grabbedData={grabbedData}
+      onClose={() => {
+        isStandalonePrompt = false;
+        isAddModalOpen = false;
+        grabbedData = null;
+        initialUrlForModal = '';
+      }} 
+      onAdded={fetchDownloads} 
+    />
+  </div>
+{:else}
 <div class="flex flex-col h-screen bg-[var(--color-bg)] text-[var(--color-text)] select-none font-sans overflow-hidden transition-colors duration-200">
   <!-- Top Navigation & Header -->
   <header class="px-8 pt-7 pb-4 shrink-0" style="--wails-draggable:drag">
@@ -358,7 +415,12 @@
   <AddDownloadModal 
     isOpen={isAddModalOpen} 
     initialUrl={initialUrlForModal}
-    onClose={() => isAddModalOpen = false} 
+    grabbedData={grabbedData}
+    onClose={() => {
+      isAddModalOpen = false;
+      grabbedData = null;
+      initialUrlForModal = '';
+    }} 
     onAdded={fetchDownloads} 
   />
 
@@ -373,3 +435,4 @@
     onClose={() => isSettingsModalOpen = false} 
   />
 </div>
+{/if}

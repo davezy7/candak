@@ -5,6 +5,7 @@ export namespace models {
 	    filename: string;
 	    saveDir: string;
 	    connections: number;
+	    headers?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new AddDownloadRequest(source);
@@ -16,6 +17,7 @@ export namespace models {
 	        this.filename = source["filename"];
 	        this.saveDir = source["saveDir"];
 	        this.connections = source["connections"];
+	        this.headers = source["headers"];
 	    }
 	}
 	export class Chunk {
@@ -55,6 +57,7 @@ export namespace models {
 	    speed: number;
 	    eta: number;
 	    errorMessage: string;
+	    headers?: Record<string, string>;
 	    createdAt: string;
 	    updatedAt: string;
 	    chunks?: Chunk[];
@@ -77,6 +80,7 @@ export namespace models {
 	        this.speed = source["speed"];
 	        this.eta = source["eta"];
 	        this.errorMessage = source["errorMessage"];
+	        this.headers = source["headers"];
 	        this.createdAt = source["createdAt"];
 	        this.updatedAt = source["updatedAt"];
 	        this.chunks = this.convertValues(source["chunks"], Chunk);
@@ -100,12 +104,29 @@ export namespace models {
 		    return a;
 		}
 	}
+	export class GrabRequest {
+	    url: string;
+	    filename?: string;
+	    headers?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new GrabRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	        this.filename = source["filename"];
+	        this.headers = source["headers"];
+	    }
+	}
 	export class ProbeResult {
 	    url: string;
 	    filename: string;
 	    totalSize: number;
 	    resumable: boolean;
 	    contentType: string;
+	    headers?: Record<string, string>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProbeResult(source);
@@ -118,6 +139,7 @@ export namespace models {
 	        this.totalSize = source["totalSize"];
 	        this.resumable = source["resumable"];
 	        this.contentType = source["contentType"];
+	        this.headers = source["headers"];
 	    }
 	}
 	export class URLHistoryItem {

@@ -14,6 +14,10 @@ export function ClearURLHistory() {
   return window['go']['main']['App']['ClearURLHistory']();
 }
 
+export function ClosePromptWindow(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ClosePromptWindow'](arg1, arg2, arg3);
+}
+
 export function DeleteURLHistoryItem(arg1) {
   return window['go']['main']['App']['DeleteURLHistoryItem'](arg1);
 }
@@ -30,8 +34,28 @@ export function GetDownloads() {
   return window['go']['main']['App']['GetDownloads']();
 }
 
+export function GetExtensionDir() {
+  return window['go']['main']['App']['GetExtensionDir']();
+}
+
+export function GetLoopbackStatus() {
+  return window['go']['main']['App']['GetLoopbackStatus']();
+}
+
 export function GetURLHistory() {
   return window['go']['main']['App']['GetURLHistory']();
+}
+
+export function HandleGrabRequest(arg1) {
+  return window['go']['main']['App']['HandleGrabRequest'](arg1);
+}
+
+export function IsClipboardWatching() {
+  return window['go']['main']['App']['IsClipboardWatching']();
+}
+
+export function NotifyDesktop(arg1, arg2) {
+  return window['go']['main']['App']['NotifyDesktop'](arg1, arg2);
 }
 
 export function OpenFile(arg1) {
@@ -42,12 +66,20 @@ export function OpenFolder(arg1) {
   return window['go']['main']['App']['OpenFolder'](arg1);
 }
 
+export function OpenMainWindow() {
+  return window['go']['main']['App']['OpenMainWindow']();
+}
+
 export function PauseDownload(arg1) {
   return window['go']['main']['App']['PauseDownload'](arg1);
 }
 
 export function ProbeURL(arg1) {
   return window['go']['main']['App']['ProbeURL'](arg1);
+}
+
+export function ProbeURLWithHeaders(arg1, arg2) {
+  return window['go']['main']['App']['ProbeURLWithHeaders'](arg1, arg2);
 }
 
 export function ResumeDownload(arg1) {
@@ -58,6 +90,14 @@ export function SelectDirectory() {
   return window['go']['main']['App']['SelectDirectory']();
 }
 
+export function SetClipboardWatching(arg1) {
+  return window['go']['main']['App']['SetClipboardWatching'](arg1);
+}
+
 export function ShowInFolder(arg1) {
   return window['go']['main']['App']['ShowInFolder'](arg1);
+}
+
+export function SuppressClipboardURL(arg1) {
+  return window['go']['main']['App']['SuppressClipboardURL'](arg1);
 }

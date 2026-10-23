@@ -19,6 +19,7 @@ import (
 	"candak/internal/planner"
 	"candak/internal/prober"
 	"candak/internal/storage"
+	"candak/internal/sysutil"
 )
 
 type activeTask struct {
@@ -38,6 +39,7 @@ type Manager struct {
 	emitter    events.Broadcaster
 	httpClient *http.Client
 	worker     *ChunkWorker
+	notifier   sysutil.Notifier
 
 	mu          sync.RWMutex
 	activeTasks map[string]*activeTask
@@ -49,6 +51,7 @@ type Config struct {
 	Prober       prober.URLProber
 	ChunkPlanner planner.ChunkPlanner
 	Broadcaster  events.Broadcaster
+	Notifier     sysutil.Notifier
 	HTTPClient   *http.Client
 	UserAgent    string
 }
@@ -104,6 +107,7 @@ func NewManager(cfg Config) *Manager {
 		emitter:     em,
 		httpClient:  client,
 		worker:      NewChunkWorker(client, ua),
+		notifier:    cfg.Notifier,
 		activeTasks: make(map[string]*activeTask),
 	}
 }
@@ -126,13 +130,18 @@ func (m *Manager) ProbeURL(ctx context.Context, rawURL string) (*models.ProbeRes
 	return m.prober.Probe(ctx, rawURL)
 }
 
+// ProbeURLWithHeaders analyzes target metadata with custom headers via the injected URLProber.
+func (m *Manager) ProbeURLWithHeaders(ctx context.Context, rawURL string, headers map[string]string) (*models.ProbeResult, error) {
+	return m.prober.ProbeWithHeaders(ctx, rawURL, headers)
+}
+
 // AddDownload initializes, stores, and starts a download task.
 func (m *Manager) AddDownload(ctx context.Context, req models.AddDownloadRequest) (*models.Download, error) {
 	if req.URL == "" {
 		return nil, models.ErrInvalidURL
 	}
 
-	probeRes, err := m.prober.Probe(ctx, req.URL)
+	probeRes, err := m.prober.ProbeWithHeaders(ctx, req.URL, req.Headers)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +177,7 @@ func (m *Manager) AddDownload(ctx context.Context, req models.AddDownloadRequest
 		Speed:          0,
 		ETA:            0,
 		ErrorMessage:   "",
+		Headers:        req.Headers,
 		Chunks:         chunks,
 	}
 
@@ -276,7 +286,7 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 		wg.Add(1)
 		go func(c *models.Chunk) {
 			defer wg.Done()
-			if err := m.worker.Download(ctx, dl.URL, dl.Resumable, c, file, &currentDownloadedBytes, persistCallback); err != nil {
+			if err := m.worker.Download(ctx, dl.URL, dl.Resumable, c, file, &currentDownloadedBytes, persistCallback, dl.Headers); err != nil {
 				if ctx.Err() == nil {
 					errChan <- fmt.Errorf("chunk %d: %w", c.ChunkIndex, err)
 				}
@@ -342,6 +352,9 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 	}
 	m.emitProgress(dl, chunks)
 	m.emitStatusChange(dl)
+	if m.notifier != nil {
+		_ = m.notifier.Notify("Candak Download Complete", fmt.Sprintf("Finished: %s", dl.Filename))
+	}
 }
 
 func (m *Manager) finishWithError(dl *models.Download, errMsg string) {

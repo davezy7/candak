@@ -4,7 +4,11 @@
   import { 
     GetDefaultDownloadDir, 
     SelectDirectory, 
-    OpenFolder 
+    OpenFolder,
+    GetLoopbackStatus,
+    GetExtensionDir,
+    SetClipboardWatching,
+    IsClipboardWatching
   } from '@wails/go/main/App.js';
   import { 
     X, 
@@ -18,7 +22,11 @@
     Plus,
     Edit2,
     RotateCcw,
-    FileCheck
+    FileCheck,
+    Globe,
+    Clipboard,
+    ExternalLink,
+    ShieldCheck
   } from 'lucide-svelte';
   import { DEFAULT_ACCEPTED_EXTENSIONS } from './formatters.js';
 
@@ -37,6 +45,11 @@
   let editingIndex = null;
   let editingValue = '';
   let extError = '';
+
+  // Browser & Clipboard Integration State
+  let loopbackStatus = { running: false, address: '', port: 41920 };
+  let extensionDir = '';
+  let clipboardWatching = false;
 
   theme.subscribe((val) => {
     currentTheme = val;
@@ -64,6 +77,15 @@
       }
 
       enforceExtensions = localStorage.getItem('candak_enforce_extensions') === 'true';
+
+      // Load loopback and clipboard status
+      try {
+        loopbackStatus = await GetLoopbackStatus();
+        extensionDir = await GetExtensionDir();
+        clipboardWatching = await IsClipboardWatching();
+      } catch (e) {
+        console.error('Failed to load integration status:', e);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -178,6 +200,30 @@
     setTimeout(() => {
       statusMessage = '';
     }, 2500);
+  }
+
+  async function handleToggleClipboardWatcher() {
+    try {
+      const nextState = !clipboardWatching;
+      const res = await SetClipboardWatching(nextState);
+      clipboardWatching = res;
+      localStorage.setItem('candak_clipboard_watching', String(res));
+      flashMessage(res ? 'Clipboard URL grabber enabled' : 'Clipboard URL grabber disabled');
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleOpenExtensionFolder() {
+    try {
+      if (!extensionDir) {
+        extensionDir = await GetExtensionDir();
+      }
+      await OpenFolder(extensionDir);
+      flashMessage('Opened browser extension folder');
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   function handleKeydown(event) {
@@ -450,6 +496,87 @@
                 <RotateCcw size={12} />
                 <span>Reset Defaults</span>
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section: Browser & Clipboard Integration -->
+        <div>
+          <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
+            Browser & URL Grabber Integration
+          </h4>
+          <div class="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-4 space-y-4">
+            <!-- Loopback Server Status -->
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                  <Globe size={18} />
+                </div>
+                <div>
+                  <span class="text-xs font-semibold text-[var(--color-text)] block">Loopback Interception Server</span>
+                  <span class="text-[11px] text-[var(--color-secondary)]">Listening on 127.0.0.1:{loopbackStatus.port || 41920}</span>
+                </div>
+              </div>
+              <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-500 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Active
+              </span>
+            </div>
+
+            <!-- Clipboard Watcher Toggle -->
+            <div class="pt-3 border-t border-[var(--color-border)] flex items-center justify-between">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl bg-[var(--color-accent-subtle)] text-[var(--color-accent)] flex items-center justify-center">
+                  <Clipboard size={17} />
+                </div>
+                <div>
+                  <span class="text-xs font-semibold text-[var(--color-text)] block">Clipboard URL Grabber</span>
+                  <span class="text-[11px] text-[var(--color-secondary)]">Auto-prompt download when a downloadable link is copied</span>
+                </div>
+              </div>
+              <button 
+                type="button"
+                on:click={handleToggleClipboardWatcher}
+                class="flex items-center gap-2 text-xs font-semibold px-2.5 py-1 rounded-full border transition cursor-pointer {
+                  clipboardWatching 
+                    ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent)] border-[var(--color-accent)]/30' 
+                    : 'bg-[var(--color-surface)] text-[var(--color-secondary)] border-[var(--color-border)]'
+                }"
+              >
+                <span class="w-2 h-2 rounded-full {clipboardWatching ? 'bg-[var(--color-accent)]' : 'bg-gray-400'}"></span>
+                <span>{clipboardWatching ? 'Enabled' : 'Disabled'}</span>
+              </button>
+            </div>
+
+            <!-- Companion Browser Extension Setup -->
+            <div class="pt-3 border-t border-[var(--color-border)] space-y-2.5">
+              <div class="flex items-center justify-between">
+                <div>
+                  <span class="text-xs font-semibold text-[var(--color-text)] block">Companion Browser Extension</span>
+                  <span class="text-[11px] text-[var(--color-secondary)]">Directly intercepts browser download clicks</span>
+                </div>
+                <button 
+                  type="button"
+                  on:click={handleOpenExtensionFolder}
+                  class="px-3 py-1.5 text-xs font-semibold bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-accent)] border border-[var(--color-border)] rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Folder size={14} />
+                  <span>Open Extension Folder</span>
+                </button>
+              </div>
+
+              <!-- Quick Setup Steps -->
+              <div class="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3 text-[11px] space-y-1.5 text-[var(--color-secondary)]">
+                <div class="font-bold text-[var(--color-text)] flex items-center gap-1.5">
+                  <ShieldCheck size={14} class="text-[var(--color-accent)]" />
+                  Quick Installation (Chrome, Edge, Brave, Opera):
+                </div>
+                <ol class="list-decimal list-inside space-y-1 pl-1">
+                  <li>Open <code class="px-1 py-0.5 rounded bg-[var(--color-bg)] font-mono text-[10px]">chrome://extensions</code> in your browser.</li>
+                  <li>Enable <strong class="text-[var(--color-text)]">Developer mode</strong> (top-right toggle).</li>
+                  <li>Click <strong class="text-[var(--color-text)]">Load unpacked</strong> and select the Candak extension folder.</li>
+                </ol>
+              </div>
             </div>
           </div>
         </div>

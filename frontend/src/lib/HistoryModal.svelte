@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { GetURLHistory, ClearURLHistory, DeleteURLHistoryItem } from '@wails/go/main/App.js';
+  import { GetURLHistory, ClearURLHistory, DeleteURLHistoryItem, SuppressClipboardURL } from '@wails/go/main/App.js';
   import { formatDate } from './formatters.js';
   import ConfirmModal from './ConfirmModal.svelte';
   import { X, History, Trash2, DownloadCloud, Copy, Check } from 'lucide-svelte';
@@ -60,7 +60,10 @@
     }
   }
 
-  function copyToClipboard(item) {
+  async function copyToClipboard(item) {
+    try {
+      await SuppressClipboardURL(item.url);
+    } catch (_) {}
     navigator.clipboard.writeText(item.url);
     copiedId = item.id;
     setTimeout(() => {

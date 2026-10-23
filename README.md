@@ -23,6 +23,12 @@ A fast, reliable desktop download manager featuring multi-threaded chunking, pau
    - Live visual chunk monitors and real-time progress updates without polling.
    - Responsive transfer speed calculation and estimated time remaining.
 
+5. **Browser Download Interception & Auto-Probe (URL Grabber)**:
+   - Captures downloads directly from Chromium and Firefox browsers via bundled companion extension.
+   - Origin-restricted loopback server (`127.0.0.1:41920`) with graceful browser fallback when Candak is closed.
+   - Background clipboard watcher for auto-detecting copied file URLs.
+   - Instant Auto-Probe calculating file size, resumability, and filename with `Enter`/`Escape` prompt actions.
+
 ---
 
 ## Quick Start

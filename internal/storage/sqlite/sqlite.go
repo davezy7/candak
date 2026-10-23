@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -66,6 +67,7 @@ func (s *Storage) migrate(ctx context.Context) error {
 		speed INTEGER NOT NULL DEFAULT 0,
 		eta INTEGER NOT NULL DEFAULT 0,
 		error_message TEXT NOT NULL DEFAULT '',
+		headers TEXT NOT NULL DEFAULT '',
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	);
@@ -95,8 +97,13 @@ func (s *Storage) migrate(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_url_history_last_used ON url_history(last_used_at DESC);
 	`
 
-	_, err := s.db.ExecContext(ctx, schema)
-	return err
+	if _, err := s.db.ExecContext(ctx, schema); err != nil {
+		return err
+	}
+
+	// Schema evolution: ensure headers column exists in downloads table for upgrades
+	_, _ = s.db.ExecContext(ctx, "ALTER TABLE downloads ADD COLUMN headers TEXT NOT NULL DEFAULT ''")
+	return nil
 }
 
 // InsertDownload saves a new download record.
@@ -113,11 +120,18 @@ func (s *Storage) InsertDownload(ctx context.Context, dl *models.Download) error
 		resumableInt = 1
 	}
 
+	headersJSON := ""
+	if len(dl.Headers) > 0 {
+		if b, err := json.Marshal(dl.Headers); err == nil {
+			headersJSON = string(b)
+		}
+	}
+
 	query := `
 	INSERT INTO downloads (
 		id, url, filename, save_path, total_size, downloaded_size, status,
-		resumable, total_chunks, speed, eta, error_message, created_at, updated_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		resumable, total_chunks, speed, eta, error_message, headers, created_at, updated_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := s.db.ExecContext(ctx, query,
 		dl.ID,
@@ -132,6 +146,7 @@ func (s *Storage) InsertDownload(ctx context.Context, dl *models.Download) error
 		dl.Speed,
 		dl.ETA,
 		dl.ErrorMessage,
+		headersJSON,
 		dl.CreatedAt,
 		dl.UpdatedAt,
 	)
@@ -175,7 +190,7 @@ func (s *Storage) GetDownload(ctx context.Context, id string) (*models.Download,
 
 	query := `
 	SELECT id, url, filename, save_path, total_size, downloaded_size, status,
-	       resumable, total_chunks, speed, eta, error_message, created_at, updated_at
+	       resumable, total_chunks, speed, eta, error_message, headers, created_at, updated_at
 	FROM downloads
 	WHERE id = ?
 	`
@@ -184,6 +199,7 @@ func (s *Storage) GetDownload(ctx context.Context, id string) (*models.Download,
 	var dl models.Download
 	var resumableInt int
 	var statusStr string
+	var headersStr string
 
 	err := row.Scan(
 		&dl.ID,
@@ -198,6 +214,7 @@ func (s *Storage) GetDownload(ctx context.Context, id string) (*models.Download,
 		&dl.Speed,
 		&dl.ETA,
 		&dl.ErrorMessage,
+		&headersStr,
 		&dl.CreatedAt,
 		&dl.UpdatedAt,
 	)
@@ -210,6 +227,9 @@ func (s *Storage) GetDownload(ctx context.Context, id string) (*models.Download,
 
 	dl.Status = models.DownloadStatus(statusStr)
 	dl.Resumable = resumableInt == 1
+	if headersStr != "" {
+		_ = json.Unmarshal([]byte(headersStr), &dl.Headers)
+	}
 
 	chunks, err := s.getChunksInternal(ctx, id)
 	if err == nil {
@@ -226,7 +246,7 @@ func (s *Storage) GetAllDownloads(ctx context.Context) ([]*models.Download, erro
 
 	query := `
 	SELECT id, url, filename, save_path, total_size, downloaded_size, status,
-	       resumable, total_chunks, speed, eta, error_message, created_at, updated_at
+	       resumable, total_chunks, speed, eta, error_message, headers, created_at, updated_at
 	FROM downloads
 	ORDER BY created_at DESC
 	`
@@ -242,6 +262,7 @@ func (s *Storage) GetAllDownloads(ctx context.Context) ([]*models.Download, erro
 		var dl models.Download
 		var resumableInt int
 		var statusStr string
+		var headersStr string
 
 		if err := rows.Scan(
 			&dl.ID,
@@ -256,6 +277,7 @@ func (s *Storage) GetAllDownloads(ctx context.Context) ([]*models.Download, erro
 			&dl.Speed,
 			&dl.ETA,
 			&dl.ErrorMessage,
+			&headersStr,
 			&dl.CreatedAt,
 			&dl.UpdatedAt,
 		); err != nil {
@@ -264,6 +286,9 @@ func (s *Storage) GetAllDownloads(ctx context.Context) ([]*models.Download, erro
 
 		dl.Status = models.DownloadStatus(statusStr)
 		dl.Resumable = resumableInt == 1
+		if headersStr != "" {
+			_ = json.Unmarshal([]byte(headersStr), &dl.Headers)
+		}
 
 		downloads = append(downloads, &dl)
 		dlMap[dl.ID] = &dl
