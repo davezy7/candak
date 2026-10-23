@@ -233,7 +233,16 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 	_ = m.repo.UpdateDownloadStatus(ctx, dl.ID, models.StatusDownloading, "")
 	m.emitStatusChange(dl)
 
-	var currentDownloadedBytes int64 = dl.DownloadedSize
+	var currentDownloadedBytes int64 = 0
+	for _, c := range chunks {
+		if c.CurrentOffset > c.StartOffset {
+			currentDownloadedBytes += (c.CurrentOffset - c.StartOffset)
+		}
+	}
+	if currentDownloadedBytes == 0 && dl.DownloadedSize > 0 {
+		currentDownloadedBytes = dl.DownloadedSize
+	}
+	dl.DownloadedSize = currentDownloadedBytes
 	metrics := NewMetricsCalculator(currentDownloadedBytes)
 
 	// Progress loop ticker
@@ -266,6 +275,7 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 
 	tickerDone := make(chan struct{})
 	go func() {
+		tickCount := 0
 		for {
 			select {
 			case <-task.ctx.Done():
@@ -277,7 +287,11 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 				dl.DownloadedSize = total
 				dl.Speed, dl.ETA = metrics.Update(now, total, dl.TotalSize)
 
-				_ = m.repo.UpdateDownloadProgress(ctx, dl.ID, dl.DownloadedSize, dl.Speed, dl.ETA, dl.Status)
+				tickCount++
+				// Persist progress to DB every ~3 seconds (every 10 ticks) to reduce disk I/O lock contention
+				if tickCount%10 == 0 {
+					_ = m.repo.UpdateDownloadProgress(ctx, dl.ID, dl.DownloadedSize, dl.Speed, dl.ETA, dl.Status)
+				}
 				m.emitProgress(dl, chunks)
 			}
 		}
@@ -303,10 +317,14 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 
 	// Mark completed
 	dl.Status = models.StatusCompleted
-	dl.DownloadedSize = dl.TotalSize
+	finalSize := atomic.LoadInt64(&currentDownloadedBytes)
+	if dl.TotalSize > 0 {
+		finalSize = dl.TotalSize
+	}
+	dl.DownloadedSize = finalSize
 	dl.Speed = 0
 	dl.ETA = 0
-	_ = m.repo.UpdateDownloadProgress(context.Background(), dl.ID, dl.TotalSize, 0, 0, models.StatusCompleted)
+	_ = m.repo.UpdateDownloadProgress(context.Background(), dl.ID, finalSize, 0, 0, models.StatusCompleted)
 	_ = m.repo.UpdateDownloadStatus(context.Background(), dl.ID, models.StatusCompleted, "")
 	for _, c := range chunks {
 		c.Status = models.ChunkStatusCompleted

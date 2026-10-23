@@ -34,6 +34,38 @@ func TestHTTPProber(t *testing.T) {
 	}
 }
 
+func TestHTTPProberHeadFallback(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			// Simulate server rejecting HEAD with 405 Method Not Allowed
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if r.Header.Get("Range") == "bytes=0-0" {
+			w.Header().Set("Content-Range", "bytes 0-0/10485760")
+			w.Header().Set("Content-Length", "1")
+			w.WriteHeader(http.StatusPartialContent)
+			_, _ = w.Write([]byte("X"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	p := NewHTTPProber(WithHTTPClient(ts.Client()))
+	res, err := p.Probe(context.Background(), ts.URL+"/largefile.iso")
+	if err != nil {
+		t.Fatalf("Probe error: %v", err)
+	}
+
+	if res.TotalSize != 10485760 {
+		t.Errorf("Expected size from Content-Range 10485760, got %d", res.TotalSize)
+	}
+	if !res.Resumable {
+		t.Errorf("Expected resumable=true from Content-Range, got false")
+	}
+}
+
 func TestSanitizeFilename(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -42,6 +74,10 @@ func TestSanitizeFilename(t *testing.T) {
 		{"my/file:name*.zip", "my_file_name_.zip"},
 		{"   ", "download.bin"},
 		{"valid_name.tar.gz", "valid_name.tar.gz"},
+		{"..", "download.bin"},
+		{".", "download.bin"},
+		{"../../../etc/passwd", "download.bin"},
+		{"..secret", "download.bin"},
 	}
 
 	for _, tt := range tests {

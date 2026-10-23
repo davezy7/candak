@@ -1,41 +1,33 @@
 # Candak - Download Manager Desktop App
 
-A multi-threaded desktop download manager engineered in **Go** and **Wails v2**, featuring an instant **Svelte 5 + Tailwind CSS v4** interface and pure-Go **SQLite** persistence (`modernc.org/sqlite`).
+A fast, reliable desktop download manager featuring multi-threaded chunking, pause & resume support, and URL history tracking.
 
 ---
 
 ## Features
 
 1. **Multi-Threaded Concurrent Chunking**:
-   - Queries server `Accept-Ranges` and divides files into balanced byte segments (1 to 16 parallel connections).
-   - Writes directly to target files via `io.WriterAt`, avoiding post-download file concatenation.
+   - Queries server range capabilities and divides files into balanced byte segments (1 to 16 parallel connections).
+   - Writes directly to target files concurrently, eliminating slow post-download file merging.
 
-2. **Resume & Chunk Offset Tracking (`modernc.org/sqlite`)**:
-   - Stores exact byte-level chunk offsets (`current_offset`) in SQLite.
-   - Saves progress periodically and immediately upon pause/shutdown.
+2. **Resume & Chunk Offset Tracking**:
+   - Stores exact byte-level chunk offsets locally.
+   - Saves progress periodically and immediately upon pause or shutdown.
    - When resumed, each connection picks up from its exact saved byte offset.
 
 3. **URL History Management**:
-   - Tracks previously downloaded URLs, target filenames, and download frequencies in SQLite.
-   - Quick one-click re-downloading and clipboard copying from the URL history drawer.
+   - Tracks previously downloaded URLs, target filenames, and download frequencies.
+   - Quick one-click re-downloading and clipboard copying from the history drawer.
 
-4. **Real-time Event Streaming**:
-   - Streams `download:progress` and `download:status_change` events over the Wails event bus without UI polling.
-   - Responsive speed calculation and ETA estimation.
+4. **Real-time Event Streaming & Progress**:
+   - Live visual chunk monitors and real-time progress updates without polling.
+   - Responsive transfer speed calculation and estimated time remaining.
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-- **Go 1.20+** (tested on Go 1.26+)
-- **Node.js 18+** & **npm**
-- **Wails CLI**:
-  ```bash
-  go install github.com/wailsapp/wails/v2/cmd/wails@latest
-  ```
-
-### Development Mode (with Live Reload)
+### Build and Run
 ```bash
 wails dev
 ```

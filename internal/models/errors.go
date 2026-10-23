@@ -8,6 +8,5 @@ var (
 	ErrDownloadNotFound = errors.New("download not found")
 	ErrAlreadyRunning   = errors.New("download is already actively running")
 	ErrAlreadyCompleted = errors.New("download is already completed")
-	ErrRangeNotSupported= errors.New("server does not support HTTP range requests")
 	ErrDestinationAccess= errors.New("failed to access or create destination file")
 )

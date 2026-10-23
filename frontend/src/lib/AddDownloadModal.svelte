@@ -1,8 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { ProbeURL, AddDownload, SelectDirectory, GetDefaultDownloadDir } from '@wails/go/main/App.js';
-  import { formatBytes } from './formatters.js';
-  import { X, Search, Folder, Zap, AlertCircle, CheckCircle, Link } from 'lucide-svelte';
+  import { formatBytes, getFileExtension, DEFAULT_ACCEPTED_EXTENSIONS } from './formatters.js';
+  import { X, Search, Folder, Zap, AlertCircle, CheckCircle, Link, ShieldAlert, Plus } from 'lucide-svelte';
 
   export let isOpen = false;
   export let onClose = () => {};
@@ -17,15 +17,89 @@
   let probeResult = null;
   let probeError = '';
   let isSubmitting = false;
+  let extensionNotice = '';
+  let rejectedExtension = '';
 
   $: if (isOpen && initialUrl) {
     url = initialUrl;
     handleProbe();
   }
 
+  $: if (isOpen) {
+    const savedConn = localStorage.getItem('candak_default_connections');
+    if (savedConn) connections = parseInt(savedConn, 10) || 4;
+  }
+
+  $: {
+    const candidate = filename || probeResult?.filename;
+    if (candidate) {
+      checkAcceptedExtension(candidate);
+    } else if (url && !isProbing) {
+      const ext = getFileExtension(url);
+      if (ext) checkAcceptedExtension(url);
+      else { extensionNotice = ''; rejectedExtension = ''; }
+    } else {
+      extensionNotice = '';
+      rejectedExtension = '';
+    }
+  }
+
+  function checkAcceptedExtension(targetName) {
+    extensionNotice = '';
+    rejectedExtension = '';
+
+    const enforce = localStorage.getItem('candak_enforce_extensions') === 'true';
+    if (!enforce) return true;
+
+    const raw = localStorage.getItem('candak_accepted_extensions');
+    let accepted = DEFAULT_ACCEPTED_EXTENSIONS;
+    if (raw) {
+      try { 
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) accepted = parsed;
+      } catch (_) {}
+    }
+
+    const ext = getFileExtension(targetName);
+    if (ext && !accepted.includes(ext.toLowerCase())) {
+      rejectedExtension = ext.toLowerCase();
+      extensionNotice = `.${rejectedExtension} is not in your accepted extensions list.`;
+      return false;
+    }
+    return true;
+  }
+
+  function handleAllowExtension() {
+    if (!rejectedExtension) return;
+    const raw = localStorage.getItem('candak_accepted_extensions');
+    let accepted = [...DEFAULT_ACCEPTED_EXTENSIONS];
+    if (raw) {
+      try { 
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) accepted = parsed;
+      } catch (_) {}
+    }
+    if (!accepted.includes(rejectedExtension)) {
+      accepted.push(rejectedExtension);
+      localStorage.setItem('candak_accepted_extensions', JSON.stringify(accepted));
+    }
+    extensionNotice = '';
+    rejectedExtension = '';
+  }
+
   onMount(async () => {
     try {
-      saveDir = await GetDefaultDownloadDir();
+      const savedDir = localStorage.getItem('candak_custom_download_dir');
+      if (savedDir) {
+        saveDir = savedDir;
+      } else {
+        saveDir = await GetDefaultDownloadDir();
+      }
+
+      const savedConn = localStorage.getItem('candak_default_connections');
+      if (savedConn) {
+        connections = parseInt(savedConn, 10) || 4;
+      }
     } catch (e) {
       console.error(e);
     }
@@ -63,6 +137,11 @@
 
   async function handleSubmit() {
     if (!url.trim()) return;
+
+    if (!checkAcceptedExtension(filename || probeResult?.filename || url)) {
+      return;
+    }
+
     isSubmitting = true;
 
     try {
@@ -87,6 +166,8 @@
     probeResult = null;
     probeError = '';
     isSubmitting = false;
+    extensionNotice = '';
+    rejectedExtension = '';
     onClose();
   }
 
@@ -183,6 +264,24 @@
           <div class="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-3 text-xs text-rose-500 flex items-start gap-2">
             <AlertCircle size={16} class="shrink-0 mt-0.5" />
             <span class="break-all">{probeError}</span>
+          </div>
+        {/if}
+
+        <!-- Extension Warning Banner -->
+        {#if extensionNotice}
+          <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 text-xs text-amber-600 dark:text-amber-400 flex items-center justify-between gap-2 animate-in fade-in">
+            <div class="flex items-center gap-2 min-w-0">
+              <ShieldAlert size={16} class="shrink-0 text-amber-500" />
+              <span class="truncate">{extensionNotice}</span>
+            </div>
+            <button 
+              type="button"
+              on:click={handleAllowExtension}
+              class="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 font-bold rounded-lg transition text-[11px] shrink-0 flex items-center gap-1"
+            >
+              <Plus size={11} strokeWidth={3} />
+              <span>Allow .{rejectedExtension}</span>
+            </button>
           </div>
         {/if}
 

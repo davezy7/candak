@@ -11,7 +11,7 @@
       <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)]"></span>
       Chunk Offsets ({chunks.length} {chunks.length === 1 ? 'part' : 'threads'})
     </span>
-    <span class="text-[11px] text-[var(--color-secondary)]/80 font-mono">SQLite Resumable</span>
+    <span class="text-[11px] text-[var(--color-secondary)]/80 font-mono">Resumable</span>
   </div>
 
   <div class="flex gap-1 h-2.5 rounded-full bg-[var(--color-bg)] p-0.5 border border-[var(--color-border)] overflow-hidden">

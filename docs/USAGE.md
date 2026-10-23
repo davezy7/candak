@@ -78,7 +78,7 @@ const dl = await AddDownload({
 ```
 
 ### `PauseDownload(id string) error`
-Pauses streaming chunks and flushes offsets to SQLite.
+Pauses streaming chunks and flushes offsets to local database.
 ```javascript
 import { PauseDownload } from '@wails/go/main/App.js';
 
@@ -86,7 +86,7 @@ await PauseDownload("dl_123");
 ```
 
 ### `ResumeDownload(id string) error`
-Restarts an interrupted or paused download from the exact SQLite byte offsets.
+Restarts an interrupted or paused download from the exact saved byte offsets.
 ```javascript
 import { ResumeDownload } from '@wails/go/main/App.js';
 
@@ -102,7 +102,7 @@ await CancelDownload("dl_123", true); // true = delete file from disk
 ```
 
 ### `GetDownloads() ([]*models.Download, error)`
-Returns all downloads currently recorded in SQLite.
+Returns all downloads currently recorded in local storage.
 ```javascript
 import { GetDownloads } from '@wails/go/main/App.js';
 

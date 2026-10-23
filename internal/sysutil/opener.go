@@ -29,7 +29,7 @@ func (o *OSOpener) OpenFile(filePath string) error {
 	case "darwin":
 		cmd = exec.Command("open", filePath)
 	case "windows":
-		cmd = exec.Command("cmd", "/c", "start", "", filePath)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", filePath)
 	default:
 		cmd = exec.Command("xdg-open", filePath)
 	}

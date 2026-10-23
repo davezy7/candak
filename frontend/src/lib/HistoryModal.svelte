@@ -28,7 +28,7 @@
   }
 
   async function handleClear() {
-    if (confirm('Clear all URL history stored in SQLite?')) {
+    if (confirm('Clear all URL history?')) {
       try {
         await ClearURLHistory();
         historyItems = [];
@@ -79,7 +79,7 @@
           </div>
           <div>
             <h3 id="history-modal-title" class="font-bold text-[var(--color-text)] text-base">URL History</h3>
-            <p class="text-xs text-[var(--color-secondary)]">Past download targets recorded in SQLite</p>
+            <p class="text-xs text-[var(--color-secondary)]">Past download targets</p>
           </div>
         </div>
         <div class="flex items-center gap-2">

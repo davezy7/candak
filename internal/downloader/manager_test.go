@@ -126,3 +126,39 @@ func TestDownloaderManagerIntegration(t *testing.T) {
 		t.Errorf("Downloaded payload content mismatch (len %d vs %d)", len(content), len(payload))
 	}
 }
+
+func TestWorkerRangeIgnoredRejection(t *testing.T) {
+	// Server ignores Range header and always returns 200 OK with full file
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("FULL_FILE_DATA"))
+	}))
+	defer server.Close()
+
+	worker := NewChunkWorker(server.Client(), "TestAgent")
+	chunk := &models.Chunk{
+		ID:            "c1",
+		ChunkIndex:    1,
+		StartOffset:   100,
+		EndOffset:     200,
+		CurrentOffset: 100,
+	}
+
+	var totalCounter int64 = 0
+
+	// WriterAt adapter for buffer
+	writer := &testWriterAt{buf: make([]byte, 300)}
+	err := worker.Download(context.Background(), server.URL, true, chunk, writer, &totalCounter, nil)
+	if err == nil {
+		t.Fatalf("Expected error when server returns HTTP 200 for a range request at offset > 0, got nil")
+	}
+}
+
+type testWriterAt struct {
+	buf []byte
+}
+
+func (w *testWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
+	copy(w.buf[off:], p)
+	return len(p), nil
+}

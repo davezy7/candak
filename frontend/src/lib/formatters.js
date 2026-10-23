@@ -68,3 +68,21 @@ export function getFileCategory(filename) {
   }
   return 'other';
 }
+
+export const DEFAULT_ACCEPTED_EXTENSIONS = [
+  'zip', 'rar', '7z', 'tar', 'gz', 'iso', 'dmg', 'pkg',
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt',
+  'mp4', 'mkv', 'mov', 'mp3', 'wav', 'flac',
+  'jpg', 'jpeg', 'png', 'webp', 'gif', 'svg',
+  'exe', 'msi', 'apk', 'bin'
+];
+
+export function getFileExtension(filename) {
+  if (!filename) return '';
+  const clean = filename.split('?')[0].split('#')[0];
+  const basename = clean.split('/').pop();
+  if (!basename) return '';
+  const parts = basename.split('.');
+  if (parts.length <= 1) return '';
+  return parts.pop().toLowerCase().trim();
+}

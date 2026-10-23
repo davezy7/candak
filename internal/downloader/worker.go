@@ -50,7 +50,8 @@ func (w *ChunkWorker) Download(
 	}
 	req.Header.Set("User-Agent", w.userAgent)
 
-	if resumable && chunk.EndOffset > 0 {
+	rangeRequested := resumable && chunk.EndOffset > 0
+	if rangeRequested {
 		rangeHeader := fmt.Sprintf("bytes=%d-%d", chunk.CurrentOffset, chunk.EndOffset)
 		req.Header.Set("Range", rangeHeader)
 	}
@@ -61,29 +62,48 @@ func (w *ChunkWorker) Download(
 	}
 	defer resp.Body.Close()
 
+	if rangeRequested && chunk.CurrentOffset > 0 && resp.StatusCode == http.StatusOK {
+		return fmt.Errorf("chunk %d requested range from offset %d, but server returned HTTP 200 (full body)", chunk.ChunkIndex, chunk.CurrentOffset)
+	}
+
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent {
 		return fmt.Errorf("unexpected HTTP response status %d for chunk %d", resp.StatusCode, chunk.ChunkIndex)
 	}
 
 	chunk.Status = models.ChunkStatusDownloading
 
+	// Always guarantee the latest byte offset is persisted upon exit
+	defer func() {
+		if persist != nil {
+			status := chunk.Status
+			if ctx.Err() != nil {
+				status = models.ChunkStatusPending
+			}
+			_ = persist(context.Background(), chunk.ID, chunk.CurrentOffset, status)
+		}
+	}()
+
 	buf := make([]byte, 64*1024) // 64 KB buffer
 	lastPersisted := time.Now()
+
+	var bodyReader io.Reader = resp.Body
+	if chunk.EndOffset > 0 && chunk.EndOffset >= chunk.CurrentOffset {
+		remaining := chunk.EndOffset - chunk.CurrentOffset + 1
+		bodyReader = io.LimitReader(resp.Body, remaining)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			if persist != nil {
-				_ = persist(context.Background(), chunk.ID, chunk.CurrentOffset, models.ChunkStatusPending)
-			}
 			return ctx.Err()
 		default:
 		}
 
-		n, readErr := resp.Body.Read(buf)
+		n, readErr := bodyReader.Read(buf)
 		if n > 0 {
 			_, writeErr := writer.WriteAt(buf[:n], chunk.CurrentOffset)
 			if writeErr != nil {
+				chunk.Status = models.ChunkStatusError
 				return fmt.Errorf("chunk %d file write error: %w", chunk.ChunkIndex, writeErr)
 			}
 
@@ -103,14 +123,11 @@ func (w *ChunkWorker) Download(
 			if readErr == io.EOF {
 				break
 			}
+			chunk.Status = models.ChunkStatusError
 			return readErr
 		}
 	}
 
 	chunk.Status = models.ChunkStatusCompleted
-	if persist != nil {
-		_ = persist(ctx, chunk.ID, chunk.CurrentOffset, models.ChunkStatusCompleted)
-	}
-
 	return nil
 }

@@ -86,6 +86,15 @@ func TestSQLiteStorage(t *testing.T) {
 		t.Errorf("Unexpected chunks: %+v", chunksFromDB)
 	}
 
+	// Verify batched chunks attachment in GetAllDownloads
+	allDownloads, err := store.GetAllDownloads(ctx)
+	if err != nil {
+		t.Fatalf("GetAllDownloads error: %v", err)
+	}
+	if len(allDownloads) != 1 || len(allDownloads[0].Chunks) != 2 {
+		t.Fatalf("Expected 1 download with 2 batched chunks, got %+v", allDownloads)
+	}
+
 	// 3. URL History
 	if err := store.RecordURLHistory(ctx, dl.URL, dl.Filename); err != nil {
 		t.Fatalf("RecordURLHistory error: %v", err)

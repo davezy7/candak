@@ -43,7 +43,12 @@
     });
 
     try {
-      defaultDownloadDir = await GetDefaultDownloadDir();
+      const savedDir = localStorage.getItem('candak_custom_download_dir');
+      if (savedDir) {
+        defaultDownloadDir = savedDir;
+      } else {
+        defaultDownloadDir = await GetDefaultDownloadDir();
+      }
     } catch (e) {
       console.error(e);
     }
@@ -366,6 +371,5 @@
   <SettingsModal 
     isOpen={isSettingsModalOpen} 
     onClose={() => isSettingsModalOpen = false} 
-    onOpenHistory={() => isHistoryModalOpen = true} 
   />
 </div>

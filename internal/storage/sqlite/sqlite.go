@@ -237,6 +237,7 @@ func (s *Storage) GetAllDownloads(ctx context.Context) ([]*models.Download, erro
 	defer rows.Close()
 
 	var downloads []*models.Download
+	dlMap := make(map[string]*models.Download)
 	for rows.Next() {
 		var dl models.Download
 		var resumableInt int
@@ -264,10 +265,31 @@ func (s *Storage) GetAllDownloads(ctx context.Context) ([]*models.Download, erro
 		dl.Status = models.DownloadStatus(statusStr)
 		dl.Resumable = resumableInt == 1
 
-		chunks, _ := s.getChunksInternal(ctx, dl.ID)
-		dl.Chunks = chunks
-
 		downloads = append(downloads, &dl)
+		dlMap[dl.ID] = &dl
+	}
+	_ = rows.Close()
+
+	// Load all chunk records in one query instead of N+1 per download
+	if len(downloads) > 0 {
+		chunkRows, err := s.db.QueryContext(ctx, `
+		SELECT id, download_id, chunk_index, start_offset, end_offset, current_offset, status
+		FROM chunks
+		ORDER BY download_id, chunk_index ASC
+		`)
+		if err == nil {
+			defer chunkRows.Close()
+			for chunkRows.Next() {
+				var c models.Chunk
+				var statusStr string
+				if err := chunkRows.Scan(&c.ID, &c.DownloadID, &c.ChunkIndex, &c.StartOffset, &c.EndOffset, &c.CurrentOffset, &statusStr); err == nil {
+					c.Status = models.ChunkStatus(statusStr)
+					if targetDL, ok := dlMap[c.DownloadID]; ok {
+						targetDL.Chunks = append(targetDL.Chunks, &c)
+					}
+				}
+			}
+		}
 	}
 
 	return downloads, nil

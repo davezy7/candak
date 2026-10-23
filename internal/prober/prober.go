@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,6 +63,9 @@ func (p *HTTPProber) Probe(ctx context.Context, rawURL string) (*models.ProbeRes
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", models.ErrInvalidURL, err)
 	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, fmt.Errorf("%w: scheme must be http or https", models.ErrInvalidURL)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, parsedURL.String(), nil)
 	if err != nil {
@@ -72,6 +76,10 @@ func (p *HTTPProber) Probe(ctx context.Context, rawURL string) (*models.ProbeRes
 	resp, err := p.client.Do(req)
 	// If HEAD request fails or receives an error status code, fallback to range GET (bytes=0-0)
 	if err != nil || resp.StatusCode >= 400 {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+
 		getReq, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 		if err != nil {
 			return nil, err
@@ -91,7 +99,18 @@ func (p *HTTPProber) Probe(ctx context.Context, rawURL string) (*models.ProbeRes
 	totalSize := resp.ContentLength
 	resumable := false
 
-	if resp.Header.Get("Accept-Ranges") == "bytes" || resp.Header.Get("Content-Range") != "" {
+	if cr := resp.Header.Get("Content-Range"); cr != "" {
+		resumable = true
+		// Content-Range: bytes 0-0/104857600
+		if slash := strings.LastIndex(cr, "/"); slash != -1 && slash+1 < len(cr) {
+			sizeStr := strings.TrimSpace(cr[slash+1:])
+			if sizeStr != "*" {
+				if parsedSize, err := strconv.ParseInt(sizeStr, 10, 64); err == nil && parsedSize > 0 {
+					totalSize = parsedSize
+				}
+			}
+		}
+	} else if resp.Header.Get("Accept-Ranges") == "bytes" {
 		resumable = true
 	}
 
@@ -142,7 +161,7 @@ func SanitizeFilename(name string) string {
 		clean = strings.ReplaceAll(clean, c, "_")
 	}
 	clean = strings.TrimSpace(clean)
-	if clean == "" {
+	if clean == "" || clean == "." || clean == ".." || strings.HasPrefix(clean, "..") {
 		return "download.bin"
 	}
 	return clean

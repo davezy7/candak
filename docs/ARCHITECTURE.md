@@ -10,8 +10,8 @@ Candak uses a layered, hexagonal-inspired architecture with explicit dependency 
 
 ```mermaid
 graph TD
-    UI["Frontend (Svelte 5 + Tailwind CSS v4)"]
-    Wails["Wails v2 Desktop Bridge (app.go)"]
+    UI["Desktop Frontend UI"]
+    Bridge["Application Desktop Bridge (app.go)"]
     
     subgraph Core Domain & Orchestration
         Manager["Download Manager (internal/downloader)"]
@@ -30,15 +30,15 @@ graph TD
     end
     
     subgraph Infrastructure Adapters
-        SQLite["SQLite Storage (internal/storage/sqlite)"]
-        HTTPClient["Go net/http Client"]
-        WailsEmitter["Wails Event Emitter (internal/events)"]
+        Database["Database Storage (internal/storage/sqlite)"]
+        HTTPClient["HTTP Client"]
+        EventEmitter["Event Emitter (internal/events)"]
         OSOpener["OS System Opener (internal/sysutil)"]
     end
 
-    UI <-->|IPC Events & Calls| Wails
-    Wails -->|Uses| Manager
-    Wails -->|Uses| OpenerIF
+    UI <-->|IPC Events & Calls| Bridge
+    Bridge -->|Uses| Manager
+    Bridge -->|Uses| OpenerIF
     OpenerIF -.-> OSOpener
 
     Manager -->|Depends on| RepoIF
@@ -46,11 +46,11 @@ graph TD
     Manager -->|Depends on| PlannerIF
     Manager -->|Depends on| EmitterIF
     
-    RepoIF -.-> SQLite
+    RepoIF -.-> Database
     ProberIF -.-> Prober
     Prober --> HTTPClient
     PlannerIF -.-> Planner
-    EmitterIF -.-> WailsEmitter
+    EmitterIF -.-> EventEmitter
     Manager --> Worker
     Worker --> HTTPClient
     Manager --> Metrics
@@ -154,12 +154,12 @@ The composition root is located in `app.go` (`App.startup`), assembling the conc
 ```mermaid
 sequenceDiagram
     autonumber
-    participant UI as Svelte Frontend
+    participant UI as Desktop Frontend UI
     participant App as App Boundary (app.go)
     participant Mgr as Download Manager
     participant Prober as HTTP Prober
     participant Plan as Chunk Planner
-    participant DB as SQLite Storage
+    participant DB as Database Storage
     participant Worker as Chunk Workers (1..N)
     participant Disk as Target File (os.File)
 
@@ -188,6 +188,6 @@ sequenceDiagram
 
 ### Resume Mechanism (Crash-Safe)
 1. Whenever bytes arrive, `io.WriterAt` places them at the exact byte index `chunk.current_offset`.
-2. Every second, `UpdateChunkOffset` commits progress into SQLite in WAL mode.
+2. Periodically and on pause/exit, `UpdateChunkOffset` commits progress into the local database.
 3. If the network drops or user pauses, `CurrentOffset` remains saved in the database.
 4. On resume, the worker sends `Range: bytes={CurrentOffset}-{EndOffset}`, resuming instantly with 0 lost data.
