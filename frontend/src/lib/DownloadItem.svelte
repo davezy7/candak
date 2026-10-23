@@ -19,13 +19,10 @@
     FileVideo, 
     FileAudio, 
     FileImage, 
-    File, 
     ChevronDown, 
     ChevronUp, 
     ExternalLink, 
-    Check,
-    CheckCircle2,
-    AlertCircle
+    Check
   } from 'lucide-svelte';
 
   export let download;
@@ -90,7 +87,7 @@
   }
 </script>
 
-<div class="bg-white rounded-2xl p-5 border border-[#E2E8F0] shadow-sm hover:shadow-md transition-all duration-200 group">
+<div class="bg-[var(--color-surface)] rounded-2xl p-5 border border-[var(--color-border)] shadow-xs hover:shadow-md transition-all duration-200 group">
   <!-- Top Row -->
   <div class="flex items-center justify-between gap-4">
     <!-- Icon & Titles -->
@@ -98,8 +95,8 @@
       <!-- Squircle File Icon -->
       <div class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-colors {
         download.status === 'completed' 
-          ? 'bg-[#F1F5F9] text-[#64748B]' 
-          : 'bg-[#CCFBF1]/60 text-[#0D9488]'
+          ? 'bg-[var(--color-card-icon-muted)] text-[var(--color-secondary)]' 
+          : 'bg-[var(--color-accent-subtle)] text-[var(--color-accent)]'
       }">
         {#if category === 'archive'}
           <FileArchive size={22} strokeWidth={2} />
@@ -118,11 +115,11 @@
 
       <!-- File Name & Subtitle -->
       <div class="min-w-0 flex-1">
-        <h4 class="font-bold text-[#1F2937] text-[15px] truncate leading-tight" title={download.filename}>
+        <h4 class="font-bold text-[var(--color-text)] text-[15px] truncate leading-tight" title={download.filename}>
           {download.filename}
         </h4>
         
-        <p class="text-xs text-[#64748B] mt-1 font-medium flex items-center gap-1.5 truncate">
+        <p class="text-xs text-[var(--color-secondary)] mt-1 font-medium flex items-center gap-1.5 truncate">
           {#if download.status === 'downloading'}
             <span>{formatBytes(download.totalSize)}</span>
             <span>·</span>
@@ -130,13 +127,13 @@
           {:else if download.status === 'completed'}
             <span>{formatBytes(download.totalSize)}</span>
             <span>·</span>
-            <span class="text-[#0D9488] font-semibold">Completed</span>
+            <span class="text-[var(--color-accent)] font-semibold">Completed</span>
           {:else if download.status === 'paused'}
             <span>{formatBytes(download.downloadedSize)} / {formatBytes(download.totalSize)}</span>
             <span>·</span>
-            <span class="text-[#64748B] font-medium">Paused</span>
+            <span class="text-[var(--color-secondary)] font-medium">Paused</span>
           {:else if download.status === 'error'}
-            <span class="text-rose-600 font-medium">Failed</span>
+            <span class="text-rose-500 font-medium">Failed</span>
             {#if download.errorMessage}
               <span class="truncate">· {download.errorMessage}</span>
             {/if}
@@ -154,7 +151,7 @@
         {#if download.status === 'completed'}
           <button 
             on:click={handleOpenFile}
-            class="p-2 text-[#64748B] hover:text-[#0D9488] hover:bg-[#F1F5F9] rounded-xl transition"
+            class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] rounded-xl transition"
             title="Open File"
             aria-label="Open File"
           >
@@ -164,7 +161,7 @@
 
         <button 
           on:click={handleShowFolder}
-          class="p-2 text-[#64748B] hover:text-[#0D9488] hover:bg-[#F1F5F9] rounded-xl transition"
+          class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] rounded-xl transition"
           title="Show in Folder"
           aria-label="Show in Folder"
         >
@@ -173,7 +170,7 @@
 
         <button 
           on:click={handleDelete}
-          class="p-2 text-[#64748B] hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
+          class="p-2 text-[var(--color-secondary)] hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition"
           title="Delete Download"
           aria-label="Delete Download"
         >
@@ -181,12 +178,12 @@
         </button>
       </div>
 
-      <!-- Primary Circular Status Action Button (matching reference image) -->
+      <!-- Primary Circular Status Action Button -->
       {#if download.status === 'downloading'}
         <button 
           on:click={handlePause}
           disabled={isActionLoading}
-          class="w-8 h-8 rounded-full border-2 border-[#0D9488] text-[#0D9488] flex items-center justify-center hover:bg-[#CCFBF1]/30 transition active:scale-95"
+          class="w-8 h-8 rounded-full border-2 border-[var(--color-accent)] text-[var(--color-accent)] flex items-center justify-center hover:bg-[var(--color-accent-subtle)] transition active:scale-95"
           title="Pause Download"
           aria-label="Pause Download"
         >
@@ -196,7 +193,7 @@
         <button 
           on:click={handleResume}
           disabled={isActionLoading}
-          class="w-8 h-8 rounded-full border-2 border-[#0D9488] text-[#0D9488] flex items-center justify-center hover:bg-[#CCFBF1]/30 transition active:scale-95"
+          class="w-8 h-8 rounded-full border-2 border-[var(--color-accent)] text-[var(--color-accent)] flex items-center justify-center hover:bg-[var(--color-accent-subtle)] transition active:scale-95"
           title="Resume Download"
           aria-label="Resume Download"
         >
@@ -204,7 +201,7 @@
         </button>
       {:else if download.status === 'completed'}
         <div 
-          class="w-8 h-8 rounded-full border-2 border-[#0D9488] text-[#0D9488] flex items-center justify-center bg-[#CCFBF1]/20"
+          class="w-8 h-8 rounded-full border-2 border-[var(--color-accent)] text-[var(--color-accent)] flex items-center justify-center bg-[var(--color-accent-subtle)]"
           title="Download Completed"
         >
           <Check size={16} strokeWidth={2.5} />
@@ -217,16 +214,16 @@
   {#if download.status === 'downloading' || download.status === 'paused'}
     <div class="mt-4 space-y-2">
       <!-- Progress Bar Track -->
-      <div class="h-1.5 w-full bg-[#E2E8F0] rounded-full overflow-hidden">
+      <div class="h-1.5 w-full bg-[var(--color-border)] rounded-full overflow-hidden">
         <div 
-          class="h-full bg-[#0D9488] rounded-full transition-all duration-300"
+          class="h-full bg-[var(--color-accent)] rounded-full transition-all duration-300"
           style="width: {progress}%;"
         ></div>
       </div>
 
-      <!-- Stats row matching screenshot -->
+      <!-- Stats row matching reference design -->
       <div class="flex items-center justify-between text-xs font-medium">
-        <span class="text-[#64748B]">
+        <span class="text-[var(--color-secondary)]">
           {#if download.status === 'downloading'}
             {formatSpeed(download.speed)}
           {:else}
@@ -235,7 +232,7 @@
         </span>
 
         {#if download.status === 'downloading' && download.eta > 0}
-          <span class="text-[#0D9488] font-semibold">
+          <span class="text-[var(--color-accent)] font-semibold">
             {formatETA(download.eta)}
           </span>
         {/if}
@@ -245,10 +242,10 @@
 
   <!-- Chunks Drawer Button (Compact) -->
   {#if download.chunks && download.chunks.length > 0}
-    <div class="mt-2 pt-2 flex items-center justify-between text-[11px] text-[#64748B]">
+    <div class="mt-2 pt-2 flex items-center justify-between text-[11px] text-[var(--color-secondary)]">
       <button 
         on:click={() => showChunks = !showChunks}
-        class="hover:text-[#0D9488] flex items-center gap-1 font-medium transition"
+        class="hover:text-[var(--color-accent)] flex items-center gap-1 font-medium transition"
       >
         {#if showChunks}
           <ChevronUp size={12} />
@@ -259,7 +256,7 @@
         {/if}
       </button>
 
-      <span class="text-[10px] text-[#64748B]/70 truncate max-w-[200px]" title={download.savePath}>
+      <span class="text-[10px] text-[var(--color-secondary)]/70 truncate max-w-[200px]" title={download.savePath}>
         {download.savePath}
       </span>
     </div>

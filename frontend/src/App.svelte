@@ -3,6 +3,7 @@
   import { GetDownloads } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
   import { formatBytes, formatSpeed } from './lib/formatters.js';
+  import { theme, toggleTheme } from './lib/theme.js';
   import DownloadItem from './lib/DownloadItem.svelte';
   import AddDownloadModal from './lib/AddDownloadModal.svelte';
   import HistoryModal from './lib/HistoryModal.svelte';
@@ -13,7 +14,9 @@
     Folder, 
     Settings, 
     ArrowDown,
-    X
+    X,
+    Sun,
+    Moon
   } from 'lucide-svelte';
 
   let downloads = [];
@@ -24,11 +27,16 @@
   let isHistoryModalOpen = false;
   let initialUrlForModal = '';
   let activeTab = 'downloads'; // 'downloads' | 'files' | 'settings'
+  let currentTheme = 'system';
   let unlistenProgress = null;
   let unlistenStatus = null;
   let unlistenDeleted = null;
 
   onMount(async () => {
+    theme.subscribe((t) => {
+      currentTheme = t;
+    });
+
     await fetchDownloads();
 
     // Listen to real-time progress events from Go backend
@@ -101,19 +109,33 @@
   });
 </script>
 
-<div class="flex flex-col h-screen bg-[#F5FAFA] text-[#1F2937] select-none font-sans overflow-hidden">
+<div class="flex flex-col h-screen bg-[var(--color-bg)] text-[var(--color-text)] select-none font-sans overflow-hidden transition-colors duration-200">
   <!-- Top Navigation & Header -->
   <header class="px-8 pt-7 pb-4 shrink-0" style="--wails-draggable:drag">
     <div class="flex items-center justify-between">
       <!-- Title -->
-      <h1 class="text-[26px] font-bold tracking-tight text-[#1F2937]">Downloads</h1>
+      <h1 class="text-[26px] font-bold tracking-tight text-[var(--color-text)]">Downloads</h1>
 
       <!-- Header Action Buttons -->
-      <div class="flex items-center gap-2.5" style="--wails-draggable:no-drag">
+      <div class="flex items-center gap-2" style="--wails-draggable:no-drag">
+        <!-- Light / Dark Theme Toggle Button -->
+        <button 
+          on:click={toggleTheme}
+          class="p-2.5 rounded-full text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)] transition"
+          title="Toggle Light / Dark mode"
+          aria-label="Toggle Light / Dark mode"
+        >
+          {#if currentTheme === 'dark'}
+            <Sun size={19} strokeWidth={2.2} />
+          {:else}
+            <Moon size={19} strokeWidth={2.2} />
+          {/if}
+        </button>
+
         <!-- Search Toggle -->
         <button 
           on:click={() => showSearchBar = !showSearchBar}
-          class="p-2.5 rounded-full text-[#1F2937] hover:text-[#0D9488] hover:bg-white border border-transparent hover:border-[#E2E8F0] shadow-2xs transition"
+          class="p-2.5 rounded-full text-[var(--color-text)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)] shadow-2xs transition"
           title="Search downloads"
           aria-label="Search downloads"
         >
@@ -123,7 +145,7 @@
         <!-- New Download Button -->
         <button 
           on:click={() => { initialUrlForModal = ''; isAddModalOpen = true; }}
-          class="flex items-center gap-1.5 px-4 py-2 bg-[#0D9488] hover:bg-[#0F766E] text-white text-xs font-bold rounded-full shadow-sm hover:shadow transition active:scale-95"
+          class="flex items-center gap-1.5 px-4 py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-bold rounded-full shadow-sm hover:shadow transition active:scale-95"
           title="Add New Download"
         >
           <Plus size={16} strokeWidth={3} />
@@ -139,13 +161,13 @@
           type="text" 
           bind:value={searchQuery}
           placeholder="Filter by filename or URL..."
-          class="w-full bg-white border border-[#E2E8F0] rounded-2xl pl-10 pr-9 py-2 text-sm text-[#1F2937] placeholder-[#64748B] focus:outline-none focus:border-[#0D9488] focus:ring-2 focus:ring-[#0D9488]/20 transition shadow-xs"
+          class="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl pl-10 pr-9 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-secondary)] focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 transition shadow-xs"
         />
-        <Search size={16} class="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#64748B]" />
+        <Search size={16} class="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--color-secondary)]" />
         {#if searchQuery}
           <button 
             on:click={() => searchQuery = ''}
-            class="absolute right-3 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#1F2937]"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-secondary)] hover:text-[var(--color-text)]"
           >
             <X size={15} />
           </button>
@@ -159,8 +181,8 @@
         on:click={() => filter = 'all'}
         class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
           filter === 'all' 
-            ? 'bg-[#CCFBF1] text-[#0D9488]' 
-            : 'text-[#64748B] hover:text-[#1F2937] hover:bg-white/60'
+            ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
+            : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
         }"
       >
         All files {totalCount}
@@ -170,8 +192,8 @@
         on:click={() => filter = 'downloading'}
         class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
           filter === 'downloading' 
-            ? 'bg-[#CCFBF1] text-[#0D9488]' 
-            : 'text-[#64748B] hover:text-[#1F2937] hover:bg-white/60'
+            ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
+            : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
         }"
       >
         Downloading {downloadingCount}
@@ -181,8 +203,8 @@
         on:click={() => filter = 'completed'}
         class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
           filter === 'completed' 
-            ? 'bg-[#CCFBF1] text-[#0D9488]' 
-            : 'text-[#64748B] hover:text-[#1F2937] hover:bg-white/60'
+            ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
+            : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
         }"
       >
         Completed {completedCount}
@@ -193,8 +215,8 @@
           on:click={() => filter = 'paused'}
           class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
             filter === 'paused' 
-              ? 'bg-[#CCFBF1] text-[#0D9488]' 
-              : 'text-[#64748B] hover:text-[#1F2937] hover:bg-white/60'
+              ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
+              : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
           }"
         >
           Paused {pausedCount}
@@ -207,19 +229,19 @@
   <main class="flex-1 overflow-y-auto px-8 pb-24 space-y-3.5">
     {#if filteredDownloads.length === 0}
       <div class="h-full flex flex-col items-center justify-center py-20 text-center">
-        <div class="w-16 h-16 rounded-3xl bg-white border border-[#E2E8F0] shadow-xs flex items-center justify-center text-[#64748B] mb-3">
+        <div class="w-16 h-16 rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs flex items-center justify-center text-[var(--color-secondary)] mb-3">
           <Download size={26} strokeWidth={2} />
         </div>
-        <h3 class="text-base font-bold text-[#1F2937]">
+        <h3 class="text-base font-bold text-[var(--color-text)]">
           {searchQuery ? "No matching downloads" : "No downloads yet"}
         </h3>
-        <p class="text-xs text-[#64748B] max-w-xs mt-1">
+        <p class="text-xs text-[var(--color-secondary)] max-w-xs mt-1">
           {searchQuery ? "Try refining your search query." : "Click '+ Add' to start your first file download."}
         </p>
         {#if !searchQuery}
           <button 
             on:click={() => isAddModalOpen = true}
-            class="mt-4 px-5 py-2.5 text-xs font-bold text-white bg-[#0D9488] hover:bg-[#0F766E] rounded-full shadow-sm hover:shadow transition"
+            class="mt-4 px-5 py-2.5 text-xs font-bold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-full shadow-sm hover:shadow transition"
           >
             Start a Download
           </button>
@@ -234,12 +256,12 @@
 
   <!-- Bottom Navigation Bar matching reference screenshot -->
   <footer class="fixed bottom-4 left-0 right-0 px-8 flex justify-center pointer-events-none">
-    <nav class="bg-white border border-[#E2E8F0] rounded-3xl shadow-lg shadow-slate-200/50 py-2.5 px-10 flex items-center gap-12 pointer-events-auto">
+    <nav class="bg-[var(--color-nav-bg)] border border-[var(--color-border)] rounded-3xl shadow-lg shadow-black/5 py-2.5 px-10 flex items-center gap-12 pointer-events-auto">
       <!-- Downloads Tab -->
       <button 
         on:click={() => activeTab = 'downloads'}
         class="flex flex-col items-center gap-1 transition-colors {
-          activeTab === 'downloads' ? 'text-[#0D9488]' : 'text-[#64748B] hover:text-[#1F2937]'
+          activeTab === 'downloads' ? 'text-[var(--color-accent)]' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'
         }"
       >
         <ArrowDown size={19} strokeWidth={activeTab === 'downloads' ? 2.6 : 2} />
@@ -250,22 +272,21 @@
       <button 
         on:click={() => { isHistoryModalOpen = true; }}
         class="flex flex-col items-center gap-1 transition-colors {
-          activeTab === 'files' ? 'text-[#0D9488]' : 'text-[#64748B] hover:text-[#1F2937]'
+          activeTab === 'files' ? 'text-[var(--color-accent)]' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'
         }"
       >
         <Folder size={19} strokeWidth={activeTab === 'files' ? 2.6 : 2} />
         <span class="text-[11px] font-semibold">Files</span>
       </button>
 
-      <!-- Settings / Info Tab -->
+      <!-- Settings / Theme Tab -->
       <button 
-        on:click={() => { isHistoryModalOpen = true; }}
-        class="flex flex-col items-center gap-1 transition-colors {
-          activeTab === 'settings' ? 'text-[#0D9488]' : 'text-[#64748B] hover:text-[#1F2937]'
-        }"
+        on:click={toggleTheme}
+        class="flex flex-col items-center gap-1 transition-colors text-[var(--color-secondary)] hover:text-[var(--color-text)]"
+        title="Toggle Theme"
       >
-        <Settings size={19} strokeWidth={activeTab === 'settings' ? 2.6 : 2} />
-        <span class="text-[11px] font-semibold">Settings</span>
+        <Settings size={19} strokeWidth={2} />
+        <span class="text-[11px] font-semibold">Theme</span>
       </button>
     </nav>
   </footer>
