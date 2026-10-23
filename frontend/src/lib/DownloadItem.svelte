@@ -8,6 +8,7 @@
   } from '@wails/go/main/App.js';
   import { formatBytes, formatSpeed, formatETA, getFileCategory } from './formatters.js';
   import ChunkVisualizer from './ChunkVisualizer.svelte';
+  import ConfirmModal from './ConfirmModal.svelte';
   import { 
     Play, 
     Pause, 
@@ -30,6 +31,8 @@
 
   let showChunks = false;
   let isActionLoading = false;
+  let isDeleteModalOpen = false;
+  let deleteFromDisk = false;
 
   $: category = getFileCategory(download.filename);
   $: progress = download.totalSize > 0 
@@ -60,10 +63,15 @@
     }
   }
 
-  async function handleDelete() {
-    const deleteFromDisk = confirm(`Delete "${download.filename}"?\n\nClick OK to also remove the file from your disk.`);
+  function handleDelete() {
+    deleteFromDisk = false;
+    isDeleteModalOpen = true;
+  }
+
+  async function handleConfirmDelete(detail) {
+    isDeleteModalOpen = false;
     try {
-      await CancelDownload(download.id, deleteFromDisk);
+      await CancelDownload(download.id, detail.checked);
       onAction();
     } catch (err) {
       console.error(err);
@@ -266,3 +274,16 @@
     {/if}
   {/if}
 </div>
+
+<ConfirmModal
+  isOpen={isDeleteModalOpen}
+  title="Delete Download"
+  message="Are you sure you want to remove this download from your list?"
+  submessage={download.filename}
+  confirmText="Delete"
+  showCheckbox={true}
+  checkboxLabel="Also delete downloaded file from disk"
+  bind:checkboxChecked={deleteFromDisk}
+  onConfirm={handleConfirmDelete}
+  onCancel={() => (isDeleteModalOpen = false)}
+/>

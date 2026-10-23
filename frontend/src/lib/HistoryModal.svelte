@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
-  import { GetURLHistory, ClearURLHistory } from '@wails/go/main/App.js';
+  import { GetURLHistory, ClearURLHistory, DeleteURLHistoryItem } from '@wails/go/main/App.js';
   import { formatDate } from './formatters.js';
+  import ConfirmModal from './ConfirmModal.svelte';
   import { X, History, Trash2, DownloadCloud, Copy, Check } from 'lucide-svelte';
 
   export let isOpen = false;
@@ -11,6 +12,8 @@
   let historyItems = [];
   let isLoading = false;
   let copiedId = null;
+  let itemToDelete = null;
+  let isClearAllModalOpen = false;
 
   $: if (isOpen) {
     loadHistory();
@@ -27,14 +30,33 @@
     }
   }
 
-  async function handleClear() {
-    if (confirm('Clear all URL history?')) {
-      try {
-        await ClearURLHistory();
-        historyItems = [];
-      } catch (err) {
-        console.error(err);
-      }
+  function handleClear() {
+    isClearAllModalOpen = true;
+  }
+
+  async function confirmClearAll() {
+    isClearAllModalOpen = false;
+    try {
+      await ClearURLHistory();
+      historyItems = [];
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function handleDeleteItem(item) {
+    itemToDelete = item;
+  }
+
+  async function confirmDeleteItem() {
+    if (!itemToDelete) return;
+    const target = itemToDelete;
+    itemToDelete = null;
+    try {
+      await DeleteURLHistoryItem(target.id);
+      historyItems = historyItems.filter(h => h.id !== target.id);
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -151,6 +173,14 @@
                   <DownloadCloud size={14} />
                   Download
                 </button>
+                <button 
+                  on:click={() => handleDeleteItem(item)}
+                  class="p-2 text-[var(--color-secondary)] hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition"
+                  title="Delete from history"
+                  aria-label="Delete from history"
+                >
+                  <Trash2 size={16} />
+                </button>
               </div>
             </div>
           {/each}
@@ -158,4 +188,23 @@
       </div>
     </div>
   </div>
+
+  <ConfirmModal
+    isOpen={!!itemToDelete}
+    title="Delete History Item"
+    message="Are you sure you want to remove this URL from your history?"
+    submessage={itemToDelete?.url}
+    confirmText="Delete"
+    onConfirm={confirmDeleteItem}
+    onCancel={() => (itemToDelete = null)}
+  />
+
+  <ConfirmModal
+    isOpen={isClearAllModalOpen}
+    title="Clear All History"
+    message="Are you sure you want to clear all recorded URL download history? This cannot be undone."
+    confirmText="Clear All"
+    onConfirm={confirmClearAll}
+    onCancel={() => (isClearAllModalOpen = false)}
+  />
 {/if}

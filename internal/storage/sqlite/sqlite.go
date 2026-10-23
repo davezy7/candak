@@ -442,6 +442,15 @@ func (s *Storage) GetURLHistory(ctx context.Context, limit int) ([]*models.URLHi
 	return items, nil
 }
 
+// DeleteURLHistoryItem removes a specific record from URL history by ID.
+func (s *Storage) DeleteURLHistoryItem(ctx context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, "DELETE FROM url_history WHERE id = ?", id)
+	return err
+}
+
 // ClearURLHistory purges all recorded URL history records.
 func (s *Storage) ClearURLHistory(ctx context.Context) error {
 	s.mu.Lock()

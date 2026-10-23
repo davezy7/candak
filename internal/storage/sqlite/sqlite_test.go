@@ -106,4 +106,12 @@ func TestSQLiteStorage(t *testing.T) {
 	if history[0].URL != dl.URL {
 		t.Errorf("Expected URL %s, got %s", dl.URL, history[0].URL)
 	}
+
+	if err := store.DeleteURLHistoryItem(ctx, history[0].ID); err != nil {
+		t.Fatalf("DeleteURLHistoryItem error: %v", err)
+	}
+	remaining, err := store.GetURLHistory(ctx, 10)
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("Expected 0 history items after deletion, got %+v", remaining)
+	}
 }

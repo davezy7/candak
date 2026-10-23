@@ -14,6 +14,10 @@ export function ClearURLHistory() {
   return window['go']['main']['App']['ClearURLHistory']();
 }
 
+export function DeleteURLHistoryItem(arg1) {
+  return window['go']['main']['App']['DeleteURLHistoryItem'](arg1);
+}
+
 export function GetChunks(arg1) {
   return window['go']['main']['App']['GetChunks'](arg1);
 }

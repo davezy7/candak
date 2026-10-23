@@ -448,6 +448,11 @@ func (m *Manager) GetURLHistory(ctx context.Context, limit int) ([]*models.URLHi
 	return m.repo.GetURLHistory(ctx, limit)
 }
 
+// DeleteURLHistoryItem removes a specific entry from the URL history.
+func (m *Manager) DeleteURLHistoryItem(ctx context.Context, id int64) error {
+	return m.repo.DeleteURLHistoryItem(ctx, id)
+}
+
 // ClearURLHistory purges the URL history records.
 func (m *Manager) ClearURLHistory(ctx context.Context) error {
 	return m.repo.ClearURLHistory(ctx)

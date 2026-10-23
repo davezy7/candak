@@ -38,6 +38,8 @@ type HistoryRepository interface {
 	RecordURLHistory(ctx context.Context, urlStr, filename string) error
 	// GetURLHistory retrieves the most recently used URLs up to the specified limit.
 	GetURLHistory(ctx context.Context, limit int) ([]*models.URLHistoryItem, error)
+	// DeleteURLHistoryItem removes a specific URL record from history by ID.
+	DeleteURLHistoryItem(ctx context.Context, id int64) error
 	// ClearURLHistory purges all recorded URL history records.
 	ClearURLHistory(ctx context.Context) error
 }

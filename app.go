@@ -137,6 +137,14 @@ func (a *App) GetURLHistory() ([]*models.URLHistoryItem, error) {
 	return a.manager.GetURLHistory(a.ctx, 50)
 }
 
+// DeleteURLHistoryItem removes a specific record from URL history.
+func (a *App) DeleteURLHistoryItem(id int64) error {
+	if a.manager == nil {
+		return fmt.Errorf("download manager is not ready")
+	}
+	return a.manager.DeleteURLHistoryItem(a.ctx, id)
+}
+
 // ClearURLHistory purges the URL history table.
 func (a *App) ClearURLHistory() error {
 	if a.manager == nil {

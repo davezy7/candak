@@ -8,6 +8,8 @@ export function CancelDownload(arg1:string,arg2:boolean):Promise<void>;
 
 export function ClearURLHistory():Promise<void>;
 
+export function DeleteURLHistoryItem(arg1:number):Promise<void>;
+
 export function GetChunks(arg1:string):Promise<Array<models.Chunk>>;
 
 export function GetDefaultDownloadDir():Promise<string>;
