@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Candak Integration</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      width: 260px;
+      margin: 0;
+      padding: 16px;
+      background: #0f172a;
+      color: #f8fafc;
+      font-size: 13px;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 10px;
+    }
+    .title {
+      font-weight: 700;
+      font-size: 15px;
+      color: #38bdf8;
+    }
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: #1e293b;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ef4444;
+    }
+    .dot.connected {
+      background: #10b981;
+      box-shadow: 0 0 8px #10b98188;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background-color: #334155;
+      transition: .2s;
+      border-radius: 20px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .2s;
+      border-radius: 50%;
+    }
+    input:checked + .slider { background-color: #0284c7; }
+    input:checked + .slider:before { transform: translateX(16px); }
+    .info {
+      font-size: 11px;
+      color: #94a3b8;
+      line-height: 1.4;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">Candak Downloader</div>
+  </div>
+
+  <div class="status-row">
+    <span>App Status:</span>
+    <span class="status-badge" id="statusBadge">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">Checking...</span>
+    </span>
+  </div>
+
+  <div class="toggle-row">
+    <span>Intercept Downloads</span>
+    <label class="switch">
+      <input type="checkbox" id="interceptToggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="info">
+    When enabled, browser downloads are automatically forwarded to Candak with URL, size, and save prompt.
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
