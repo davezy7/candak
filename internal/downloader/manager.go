@@ -451,9 +451,47 @@ func (m *Manager) CancelDownload(ctx context.Context, id string, deleteFile bool
 	return nil
 }
 
-// GetAllDownloads returns all registered downloads.
+// PauseAll cleanly suspends all active download tasks.
+func (m *Manager) PauseAll(ctx context.Context) {
+	m.mu.Lock()
+	tasks := make([]*activeTask, 0, len(m.activeTasks))
+	for _, t := range m.activeTasks {
+		t.download.Status = models.StatusPaused
+		t.cancel()
+		tasks = append(tasks, t)
+	}
+	m.mu.Unlock()
+
+	for _, t := range tasks {
+		select {
+		case <-t.doneChan:
+		case <-time.After(1 * time.Second):
+		}
+		_ = m.repo.UpdateDownloadStatus(ctx, t.download.ID, models.StatusPaused, "")
+	}
+}
+
+// GetAllDownloads returns all registered downloads, synchronizing any inactive tasks.
 func (m *Manager) GetAllDownloads(ctx context.Context) ([]*models.Download, error) {
-	return m.repo.GetAllDownloads(ctx)
+	downloads, err := m.repo.GetAllDownloads(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, dl := range downloads {
+		if dl.Status == models.StatusDownloading || dl.Status == models.StatusQueued {
+			if _, active := m.activeTasks[dl.ID]; !active {
+				dl.Status = models.StatusPaused
+				dl.Speed = 0
+				dl.ETA = 0
+				_ = m.repo.UpdateDownloadProgress(ctx, dl.ID, dl.DownloadedSize, 0, 0, models.StatusPaused)
+				_ = m.repo.UpdateDownloadStatus(ctx, dl.ID, models.StatusPaused, "")
+			}
+		}
+	}
+	return downloads, nil
 }
 
 // GetURLHistory returns the URL history list.

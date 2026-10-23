@@ -115,3 +115,52 @@ func TestSQLiteStorage(t *testing.T) {
 		t.Fatalf("Expected 0 history items after deletion, got %+v", remaining)
 	}
 }
+
+func TestInterruptedDownloadsReconciliation(t *testing.T) {
+	ctx := context.Background()
+	tempDir, err := os.MkdirTemp("", "candak-reconcile-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	store, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to init sqlite store: %v", err)
+	}
+
+	dl := &models.Download{
+		ID:             "dl_interrupted",
+		URL:            "https://example.com/file.bin",
+		Filename:       "file.bin",
+		SavePath:       filepath.Join(tempDir, "file.bin"),
+		TotalSize:      1000,
+		DownloadedSize: 500,
+		Status:         models.StatusDownloading,
+		Speed:          50000,
+		ETA:            10,
+	}
+	if err := store.InsertDownload(ctx, dl); err != nil {
+		t.Fatalf("InsertDownload error: %v", err)
+	}
+	_ = store.Close()
+
+	// Reopen store (simulating app restart after unexpected exit)
+	store2, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to reopen sqlite store: %v", err)
+	}
+	defer store2.Close()
+
+	reconciled, err := store2.GetDownload(ctx, dl.ID)
+	if err != nil {
+		t.Fatalf("GetDownload error: %v", err)
+	}
+	if reconciled.Status != models.StatusPaused {
+		t.Errorf("Expected status to be paused on restart, got %v", reconciled.Status)
+	}
+	if reconciled.Speed != 0 || reconciled.ETA != 0 {
+		t.Errorf("Expected speed and ETA to be reset to 0, got speed=%d, eta=%d", reconciled.Speed, reconciled.ETA)
+	}
+}

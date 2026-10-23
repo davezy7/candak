@@ -103,6 +103,16 @@ func (s *Storage) migrate(ctx context.Context) error {
 
 	// Schema evolution: ensure headers column exists in downloads table for upgrades
 	_, _ = s.db.ExecContext(ctx, "ALTER TABLE downloads ADD COLUMN headers TEXT NOT NULL DEFAULT ''")
+
+	// Reset any downloads interrupted by previous app shutdown/crash
+	_, _ = s.db.ExecContext(ctx, `
+		UPDATE downloads 
+		SET status = 'paused', speed = 0, eta = 0 
+		WHERE status = 'downloading' OR status = 'queued';
+		UPDATE chunks 
+		SET status = 'pending' 
+		WHERE status = 'downloading';
+	`)
 	return nil
 }
 

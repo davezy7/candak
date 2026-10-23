@@ -117,7 +117,14 @@
   }
 
   function handleConnectionsChange(e) {
-    defaultConnections = parseInt(e.target.value, 10);
+    if (e && e.target) {
+      defaultConnections = parseInt(e.target.value, 10);
+    }
+    localStorage.setItem('candak_default_connections', String(defaultConnections));
+  }
+
+  function setConnections(val) {
+    defaultConnections = val;
     localStorage.setItem('candak_default_connections', String(defaultConnections));
   }
 
@@ -365,15 +372,15 @@
                 min="1" 
                 max="16" 
                 step="1" 
-                value={defaultConnections} 
+                bind:value={defaultConnections} 
                 on:input={handleConnectionsChange}
                 class="w-full accent-[var(--color-accent)] bg-[var(--color-border)] h-2 rounded-lg cursor-pointer mt-1"
               />
-              <div class="flex justify-between text-[10px] text-[var(--color-secondary)] mt-1">
-                <span>1 (Single)</span>
-                <span>4 (Standard)</span>
-                <span>8 (Fast)</span>
-                <span>16 (Max)</span>
+              <div class="relative text-[10px] text-[var(--color-secondary)] mt-1.5 h-3.5 select-none">
+                <button type="button" on:click={() => setConnections(1)} class="absolute left-0 hover:text-[var(--color-text)] transition cursor-pointer">1 (Single)</button>
+                <button type="button" on:click={() => setConnections(4)} class="absolute left-[calc(8px+0.20*(100%-16px))] -translate-x-1/2 hover:text-[var(--color-text)] transition cursor-pointer">4 (Standard)</button>
+                <button type="button" on:click={() => setConnections(8)} class="absolute left-[calc(8px+0.467*(100%-16px))] -translate-x-1/2 hover:text-[var(--color-text)] transition cursor-pointer">8 (Fast)</button>
+                <button type="button" on:click={() => setConnections(16)} class="absolute right-0 hover:text-[var(--color-text)] transition cursor-pointer">16 (Max)</button>
               </div>
             </div>
           </div>

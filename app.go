@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -21,6 +23,9 @@ import (
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+//go:embed all:browser-extension
+var embeddedExtension embed.FS
 
 // App acts as the boundary adapter between the Wails frontend IPC and domain services.
 type App struct {
@@ -58,6 +63,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	appDir := filepath.Join(homeDir, ".candak")
 	_ = os.MkdirAll(appDir, 0755)
+	_ = a.ensureExtensionFiles(filepath.Join(appDir, "browser-extension"))
 
 	dbPath := filepath.Join(appDir, "candak.db")
 	repo, err := sqlite.New(dbPath)
@@ -111,6 +117,9 @@ func (a *App) startup(ctx context.Context) {
 
 // shutdown is called by Wails when the desktop application terminates.
 func (a *App) shutdown(ctx context.Context) {
+	if a.manager != nil {
+		a.manager.PauseAll(ctx)
+	}
 	if a.loopbackServer != nil {
 		_ = a.loopbackServer.Stop(ctx)
 	}
@@ -244,6 +253,7 @@ func (a *App) OpenFolder(folderPath string) error {
 	if folderPath == "" {
 		folderPath = a.GetDefaultDownloadDir()
 	}
+	_ = os.MkdirAll(folderPath, 0755)
 	return a.opener.OpenFile(folderPath)
 }
 
@@ -269,7 +279,7 @@ func (a *App) HandleGrabRequest(req models.GrabRequest) {
 	wailsRuntime.WindowUnminimise(a.ctx)
 }
 
-// ClosePromptWindow hides the standalone prompt window back to tray and dispatches start notification.
+// ClosePromptWindow hides the standalone prompt window back to tray/dock and dispatches start notification.
 func (a *App) ClosePromptWindow(downloadStarted bool, filename string, size int64) {
 	if downloadStarted && filename != "" {
 		sizeStr := sysutil.FormatBytes(size)
@@ -285,14 +295,22 @@ func (a *App) ClosePromptWindow(downloadStarted bool, filename string, size int6
 
 	if promptOnly {
 		wailsRuntime.WindowSetAlwaysOnTop(a.ctx, false)
-		wailsRuntime.WindowHide(a.ctx)
 		wailsRuntime.WindowSetMinSize(a.ctx, 800, 500)
 		wailsRuntime.WindowSetSize(a.ctx, 1080, 720)
+		wailsRuntime.WindowCenter(a.ctx)
+		wailsRuntime.EventsEmit(a.ctx, "download:prompt_mode", map[string]any{
+			"standalone": false,
+		})
+		wailsRuntime.Hide(a.ctx)
 	}
 }
 
 // OpenMainWindow restores the full manager window from system tray/dock.
 func (a *App) OpenMainWindow() {
+	if a.ctx == nil {
+		return
+	}
+
 	a.mu.Lock()
 	a.isPromptOnly = false
 	a.mu.Unlock()
@@ -304,6 +322,7 @@ func (a *App) OpenMainWindow() {
 	wailsRuntime.EventsEmit(a.ctx, "download:prompt_mode", map[string]any{
 		"standalone": false,
 	})
+	wailsRuntime.Show(a.ctx)
 	wailsRuntime.WindowShow(a.ctx)
 	wailsRuntime.WindowUnminimise(a.ctx)
 }
@@ -366,11 +385,45 @@ func (a *App) GetLoopbackStatus() map[string]any {
 	}
 }
 
-// GetExtensionDir returns the absolute path to the bundled browser extension directory.
+// GetExtensionDir returns the absolute path to the browser extension directory.
 func (a *App) GetExtensionDir() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "browser-extension"
+	// If running in development workspace, prefer local source directory if present
+	if cwd, err := os.Getwd(); err == nil && cwd != "/" {
+		localPath := filepath.Join(cwd, "browser-extension")
+		if stat, err := os.Stat(filepath.Join(localPath, "manifest.json")); err == nil && !stat.IsDir() {
+			return localPath
+		}
 	}
-	return filepath.Join(cwd, "browser-extension")
+
+	// In packaged desktop environments (.app / installed), extract embedded extension to user data directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		homeDir = "."
+	}
+	targetDir := filepath.Join(homeDir, ".candak", "browser-extension")
+	_ = a.ensureExtensionFiles(targetDir)
+	return targetDir
+}
+
+func (a *App) ensureExtensionFiles(targetDir string) error {
+	_ = os.MkdirAll(targetDir, 0755)
+
+	return fs.WalkDir(embeddedExtension, "browser-extension", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		relPath, err := filepath.Rel("browser-extension", path)
+		if err != nil || relPath == "." {
+			return nil
+		}
+		destPath := filepath.Join(targetDir, relPath)
+		if d.IsDir() {
+			return os.MkdirAll(destPath, 0755)
+		}
+		data, err := embeddedExtension.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(destPath, data, 0644)
+	})
 }
