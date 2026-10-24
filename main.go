@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"embed"
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/mac"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
@@ -18,11 +20,15 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
-	// Application menu
-	appMenu := menu.NewMenu()
-	appMenu.Append(menu.AppMenu())
-	appMenu.Append(menu.EditMenu())
-	appMenu.Append(menu.WindowMenu())
+	// Application menu - only configured on macOS for system menu bar.
+	// On Windows, setting Menu renders an unwanted Win32 white menu bar below the title bar.
+	var appMenu *menu.Menu
+	if runtime.GOOS == "darwin" {
+		appMenu = menu.NewMenu()
+		appMenu.Append(menu.AppMenu())
+		appMenu.Append(menu.EditMenu())
+		appMenu.Append(menu.WindowMenu())
+	}
 
 	// Create application with options supporting background tray daemon and dynamic mini prompt
 	err := wails.Run(&options.App{
@@ -52,6 +58,11 @@ func main() {
 		EnableDefaultContextMenu: true,
 		Bind: []interface{}{
 			app,
+		},
+		Windows: &windows.Options{
+			WebviewIsTransparent: false,
+			WindowIsTranslucent:  false,
+			Theme:                windows.SystemDefault,
 		},
 		Mac: &mac.Options{
 			TitleBar:             mac.TitleBarDefault(),
