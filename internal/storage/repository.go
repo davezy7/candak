@@ -22,12 +22,21 @@ type DownloadRepository interface {
 	DeleteDownload(ctx context.Context, id string) error
 }
 
+// ChunkOffsetUpdate specifies progress offset and status for batch persistence.
+type ChunkOffsetUpdate struct {
+	ChunkID       string
+	CurrentOffset int64
+	Status        models.ChunkStatus
+}
+
 // ChunkRepository defines storage operations for chunk partitions.
 type ChunkRepository interface {
 	// SaveChunks transactionally inserts or updates a slice of chunk records.
 	SaveChunks(ctx context.Context, chunks []*models.Chunk) error
 	// UpdateChunkOffset persists a chunk's progress offset and status.
 	UpdateChunkOffset(ctx context.Context, chunkID string, currentOffset int64, status models.ChunkStatus) error
+	// BatchUpdateChunkOffsets persists multiple chunk offsets in a single atomic transaction.
+	BatchUpdateChunkOffsets(ctx context.Context, updates []ChunkOffsetUpdate) error
 	// GetChunks retrieves all chunks assigned to a download ID in ascending index order.
 	GetChunks(ctx context.Context, downloadID string) ([]*models.Chunk, error)
 }

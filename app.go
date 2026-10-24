@@ -144,6 +144,9 @@ func (a *App) startup(ctx context.Context) {
 
 	// On boot in Tray Daemon Mode (--minimized), automatically resume uncompleted downloads in the background
 	if a.isMinimized {
+		if a.manager != nil {
+			a.manager.SetVisible(false)
+		}
 		go func() {
 			if a.manager != nil {
 				_ = a.manager.ResumeUnfinishedDownloads(a.ctx)
@@ -159,6 +162,7 @@ func (a *App) shutdown(ctx context.Context) {
 	}
 	if a.manager != nil {
 		a.manager.PauseAll(ctx)
+		a.manager.Close()
 	}
 	if a.loopbackServer != nil {
 		_ = a.loopbackServer.Stop(ctx)
@@ -341,6 +345,7 @@ func (a *App) ClosePromptWindow(downloadStarted bool, filename string, size int6
 		wailsRuntime.EventsEmit(a.ctx, "download:prompt_mode", map[string]any{
 			"standalone": false,
 		})
+		a.SetWindowVisible(false)
 		wailsRuntime.Hide(a.ctx)
 	}
 }
@@ -362,6 +367,7 @@ func (a *App) OpenMainWindow() {
 	wailsRuntime.EventsEmit(a.ctx, "download:prompt_mode", map[string]any{
 		"standalone": false,
 	})
+	a.SetWindowVisible(true)
 	wailsRuntime.Show(a.ctx)
 	wailsRuntime.WindowShow(a.ctx)
 	wailsRuntime.WindowUnminimise(a.ctx)
@@ -473,6 +479,21 @@ func (a *App) SetMinimized(minimized bool) {
 	a.mu.Lock()
 	a.isMinimized = minimized
 	a.mu.Unlock()
+
+	if a.manager != nil {
+		a.manager.SetVisible(!minimized)
+	}
+}
+
+// SetWindowVisible updates whether the main window is currently visible or minimized.
+func (a *App) SetWindowVisible(visible bool) {
+	a.mu.Lock()
+	a.isMinimized = !visible
+	a.mu.Unlock()
+
+	if a.manager != nil {
+		a.manager.SetVisible(visible)
+	}
 }
 
 // GetStartupSettings queries OS autostart configuration for Candak.

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"candak/internal/models"
+	"candak/internal/storage"
 )
 
 func TestSQLiteStorage(t *testing.T) {
@@ -84,6 +85,22 @@ func TestSQLiteStorage(t *testing.T) {
 	}
 	if len(chunksFromDB) != 2 || chunksFromDB[0].CurrentOffset != 123456 {
 		t.Errorf("Unexpected chunks: %+v", chunksFromDB)
+	}
+
+	// Test BatchUpdateChunkOffsets in single transaction
+	batchUpdates := []storage.ChunkOffsetUpdate{
+		{ChunkID: "chunk_1_0", CurrentOffset: 500000, Status: models.ChunkStatusDownloading},
+		{ChunkID: "chunk_1_1", CurrentOffset: 25500000, Status: models.ChunkStatusCompleted},
+	}
+	if err := store.BatchUpdateChunkOffsets(ctx, batchUpdates); err != nil {
+		t.Fatalf("BatchUpdateChunkOffsets error: %v", err)
+	}
+	updatedChunks, err := store.GetChunks(ctx, dl.ID)
+	if err != nil {
+		t.Fatalf("GetChunks after batch update error: %v", err)
+	}
+	if updatedChunks[0].CurrentOffset != 500000 || updatedChunks[1].CurrentOffset != 25500000 || updatedChunks[1].Status != models.ChunkStatusCompleted {
+		t.Errorf("Unexpected chunks after batch update: %+v", updatedChunks)
 	}
 
 	// Verify batched chunks attachment in GetAllDownloads

@@ -1,6 +1,6 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { GetDownloads, OpenFolder, GetDefaultDownloadDir, SetClipboardWatching } from '@wails/go/main/App.js';
+  import { GetDownloads, OpenFolder, GetDefaultDownloadDir, SetClipboardWatching, SetWindowVisible } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
   import { formatBytes, formatSpeed } from './lib/formatters.js';
   import DownloadItem from './lib/DownloadItem.svelte';
@@ -108,6 +108,9 @@
         grabbedData = null;
       }
     });
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleWindowFocus);
   });
 
   onDestroy(() => {
@@ -116,7 +119,30 @@
     if (unlistenDeleted) unlistenDeleted();
     if (unlistenGrabbed) unlistenGrabbed();
     if (unlistenPromptMode) unlistenPromptMode();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.removeEventListener('focus', handleWindowFocus);
   });
+
+  const handleVisibilityChange = async () => {
+    const isVisible = document.visibilityState === 'visible';
+    try {
+      await SetWindowVisible(isVisible);
+    } catch (err) {
+      console.error('Failed to update window visibility:', err);
+    }
+    if (isVisible) {
+      await fetchDownloads();
+    }
+  };
+
+  const handleWindowFocus = async () => {
+    try {
+      await SetWindowVisible(true);
+    } catch (err) {
+      console.error('Failed to update window visibility on focus:', err);
+    }
+    await fetchDownloads();
+  };
 
   async function fetchDownloads() {
     try {

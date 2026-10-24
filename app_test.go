@@ -58,6 +58,16 @@ func TestAppStartupSettings(t *testing.T) {
 		t.Fatalf("expected app.isMinimized to be true")
 	}
 
+	// Test SetWindowVisible
+	app.SetWindowVisible(true)
+	if app.isMinimized {
+		t.Fatalf("expected app.isMinimized to be false after SetWindowVisible(true)")
+	}
+	app.SetWindowVisible(false)
+	if !app.isMinimized {
+		t.Fatalf("expected app.isMinimized to be true after SetWindowVisible(false)")
+	}
+
 	// Test GetStartupSettings
 	cfg, err := app.GetStartupSettings()
 	if err != nil {
