@@ -1,25 +1,13 @@
 export namespace models {
 	
-	export class StartupConfig {
-	    enabled: boolean;
-	    minimized: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new StartupConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.enabled = source["enabled"];
-	        this.minimized = source["minimized"];
-	    }
-	}
 	export class AddDownloadRequest {
 	    url: string;
 	    filename: string;
 	    saveDir: string;
 	    connections: number;
 	    headers?: Record<string, string>;
+	    totalSize?: number;
+	    resumable?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AddDownloadRequest(source);
@@ -32,6 +20,8 @@ export namespace models {
 	        this.saveDir = source["saveDir"];
 	        this.connections = source["connections"];
 	        this.headers = source["headers"];
+	        this.totalSize = source["totalSize"];
+	        this.resumable = source["resumable"];
 	    }
 	}
 	export class Chunk {
@@ -141,6 +131,7 @@ export namespace models {
 	    resumable: boolean;
 	    contentType: string;
 	    headers?: Record<string, string>;
+	    error?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ProbeResult(source);
@@ -154,6 +145,21 @@ export namespace models {
 	        this.resumable = source["resumable"];
 	        this.contentType = source["contentType"];
 	        this.headers = source["headers"];
+	        this.error = source["error"];
+	    }
+	}
+	export class StartupConfig {
+	    enabled: boolean;
+	    minimized: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new StartupConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.minimized = source["minimized"];
 	    }
 	}
 	export class URLHistoryItem {

@@ -91,3 +91,17 @@ func TestAppStartupSettings(t *testing.T) {
 		t.Fatalf("expected Enabled=true, Minimized=true, got %+v", cfg)
 	}
 }
+
+func TestAppBatchMethods(t *testing.T) {
+	app := NewApp()
+	// Manager not initialized yet
+	_, err := app.BatchProbeURLs([]string{"http://example.com"})
+	if err == nil {
+		t.Errorf("expected error when manager not initialized")
+	}
+
+	_, err = app.AddBatchDownloads([]models.DownloadRequest{{URL: "http://example.com"}})
+	if err == nil {
+		t.Errorf("expected error when manager not initialized")
+	}
+}
