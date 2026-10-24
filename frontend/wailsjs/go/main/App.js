@@ -102,6 +102,10 @@ export function SetStartupSettings(arg1) {
   return window['go']['main']['App']['SetStartupSettings'](arg1);
 }
 
+export function SetWindowVisible(arg1) {
+  return window['go']['main']['App']['SetWindowVisible'](arg1);
+}
+
 export function ShowInFolder(arg1) {
   return window['go']['main']['App']['ShowInFolder'](arg1);
 }

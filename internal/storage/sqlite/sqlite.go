@@ -393,6 +393,51 @@ func (s *Storage) UpdateChunkOffset(ctx context.Context, chunkID string, current
 	return err
 }
 
+// BatchUpdateChunkOffsets persists multiple chunk offsets within a single IMMEDIATE transaction.
+func (s *Storage) BatchUpdateChunkOffsets(ctx context.Context, updates []storage.ChunkOffsetUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	stmt, err := conn.PrepareContext(ctx, `UPDATE chunks SET current_offset = ?, status = ? WHERE id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, u := range updates {
+		if _, err := stmt.ExecContext(ctx, u.CurrentOffset, string(u.Status), u.ChunkID); err != nil {
+			return err
+		}
+	}
+
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 // GetChunks retrieves all chunks assigned to a download ID in ascending index order.
 func (s *Storage) GetChunks(ctx context.Context, downloadID string) ([]*models.Chunk, error) {
 	s.mu.RLock()

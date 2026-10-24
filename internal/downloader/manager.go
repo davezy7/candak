@@ -41,8 +41,13 @@ type Manager struct {
 	worker     *ChunkWorker
 	notifier   sysutil.Notifier
 
+	visible atomic.Bool
+
 	mu          sync.RWMutex
 	activeTasks map[string]*activeTask
+
+	flusherStop chan struct{}
+	flusherDone chan struct{}
 }
 
 // Config provides configuration parameters for Manager.
@@ -69,8 +74,8 @@ func NewManager(cfg Config) *Manager {
 					KeepAlive: 30 * time.Second,
 				}).DialContext,
 				ForceAttemptHTTP2:   true,
-				MaxIdleConns:        256,
-				MaxIdleConnsPerHost: 64,
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 32,
 				IdleConnTimeout:     90 * time.Second,
 				TLSHandshakeTimeout: 10 * time.Second,
 				DisableCompression:  true,
@@ -100,7 +105,7 @@ func NewManager(cfg Config) *Manager {
 		em = events.NewNullBroadcaster()
 	}
 
-	return &Manager{
+	m := &Manager{
 		repo:        cfg.Repository,
 		prober:      pr,
 		planner:     pl,
@@ -109,6 +114,103 @@ func NewManager(cfg Config) *Manager {
 		worker:      NewChunkWorker(client, ua),
 		notifier:    cfg.Notifier,
 		activeTasks: make(map[string]*activeTask),
+		flusherStop: make(chan struct{}),
+		flusherDone: make(chan struct{}),
+	}
+	m.visible.Store(true)
+
+	go m.runBackgroundFlusher()
+
+	return m
+}
+
+// SetVisible dynamically adjusts the progress broadcast frequency based on window visibility.
+func (m *Manager) SetVisible(visible bool) {
+	m.visible.Store(visible)
+}
+
+// IsVisible returns whether the application window is currently visible.
+func (m *Manager) IsVisible() bool {
+	return m.visible.Load()
+}
+
+func (m *Manager) getProgressCadence() time.Duration {
+	if m.IsVisible() {
+		return 600 * time.Millisecond
+	}
+	return 2000 * time.Millisecond
+}
+
+// Close cleanly terminates background flusher tasks.
+func (m *Manager) Close() {
+	select {
+	case <-m.flusherStop:
+		return
+	default:
+		close(m.flusherStop)
+		<-m.flusherDone
+	}
+}
+
+func (m *Manager) runBackgroundFlusher() {
+	defer close(m.flusherDone)
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-m.flusherStop:
+			m.flushDirtyOffsets(context.Background())
+			return
+		case <-ticker.C:
+			m.flushDirtyOffsets(context.Background())
+		}
+	}
+}
+
+func (m *Manager) flushDirtyOffsets(ctx context.Context) {
+	m.mu.RLock()
+	if len(m.activeTasks) == 0 {
+		m.mu.RUnlock()
+		return
+	}
+
+	var chunkUpdates []storage.ChunkOffsetUpdate
+	type progressRecord struct {
+		id             string
+		downloadedSize int64
+		speed          int64
+		eta            int64
+		status         models.DownloadStatus
+	}
+	var progressRecords []progressRecord
+
+	for _, task := range m.activeTasks {
+		if task.download.Status == models.StatusDownloading {
+			for _, c := range task.chunks {
+				offset := atomic.LoadInt64(&c.CurrentOffset)
+				chunkUpdates = append(chunkUpdates, storage.ChunkOffsetUpdate{
+					ChunkID:       c.ID,
+					CurrentOffset: offset,
+					Status:        c.Status,
+				})
+			}
+			progressRecords = append(progressRecords, progressRecord{
+				id:             task.download.ID,
+				downloadedSize: task.download.DownloadedSize,
+				speed:          task.download.Speed,
+				eta:            task.download.ETA,
+				status:         task.download.Status,
+			})
+		}
+	}
+	m.mu.RUnlock()
+
+	if len(chunkUpdates) > 0 {
+		_ = m.repo.BatchUpdateChunkOffsets(ctx, chunkUpdates)
+	}
+	for _, pr := range progressRecords {
+		_ = m.repo.UpdateDownloadProgress(ctx, pr.id, pr.downloadedSize, pr.speed, pr.eta, pr.status)
 	}
 }
 
@@ -266,9 +368,9 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 	dl.DownloadedSize = currentDownloadedBytes
 	metrics := NewMetricsCalculator(currentDownloadedBytes)
 
-	// Progress loop ticker
-	progressTicker := time.NewTicker(300 * time.Millisecond)
-	defer progressTicker.Stop()
+	// Progress loop timer (600ms visible, 2000ms minimized)
+	progressTimer := time.NewTimer(m.getProgressCadence())
+	defer progressTimer.Stop()
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(chunks))
@@ -296,24 +398,19 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 
 	tickerDone := make(chan struct{})
 	go func() {
-		tickCount := 0
 		for {
 			select {
 			case <-task.ctx.Done():
 				return
 			case <-tickerDone:
 				return
-			case now := <-progressTicker.C:
+			case now := <-progressTimer.C:
 				total := atomic.LoadInt64(&currentDownloadedBytes)
 				dl.DownloadedSize = total
 				dl.Speed, dl.ETA = metrics.Update(now, total, dl.TotalSize)
 
-				tickCount++
-				// Persist progress to DB every ~3 seconds (every 10 ticks) to reduce disk I/O lock contention
-				if tickCount%10 == 0 {
-					_ = m.repo.UpdateDownloadProgress(ctx, dl.ID, dl.DownloadedSize, dl.Speed, dl.ETA, dl.Status)
-				}
 				m.emitProgress(dl, chunks)
+				progressTimer.Reset(m.getProgressCadence())
 			}
 		}
 	}()

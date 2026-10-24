@@ -248,3 +248,129 @@ func TestResumeUnfinishedDownloads(t *testing.T) {
 		t.Fatalf("Expected download to complete after resume, status: %v", finalDL.Status)
 	}
 }
+
+func TestProgressThrottleCadence(t *testing.T) {
+	mgr := NewManager(Config{
+		Broadcaster: events.NewNullBroadcaster(),
+	})
+	defer mgr.Close()
+
+	if !mgr.IsVisible() {
+		t.Errorf("expected default visibility to be true")
+	}
+	if cadence := mgr.getProgressCadence(); cadence != 600*time.Millisecond {
+		t.Errorf("expected visible cadence 600ms, got %v", cadence)
+	}
+
+	mgr.SetVisible(false)
+	if mgr.IsVisible() {
+		t.Errorf("expected visibility to be false after SetVisible(false)")
+	}
+	if cadence := mgr.getProgressCadence(); cadence != 2000*time.Millisecond {
+		t.Errorf("expected minimized cadence 2000ms, got %v", cadence)
+	}
+
+	mgr.SetVisible(true)
+	if cadence := mgr.getProgressCadence(); cadence != 600*time.Millisecond {
+		t.Errorf("expected visible cadence 600ms, got %v", cadence)
+	}
+}
+
+func TestBackgroundFlusherBatchOffsets(t *testing.T) {
+	ctx := context.Background()
+	tempDir, err := os.MkdirTemp("", "candak-flusher-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	repo, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to init sqlite repo: %v", err)
+	}
+	defer repo.Close()
+
+	dl := &models.Download{
+		ID:             "dl_flusher_test",
+		URL:            "https://example.com/file.bin",
+		Filename:       "file.bin",
+		SavePath:       filepath.Join(tempDir, "file.bin"),
+		TotalSize:      2000,
+		DownloadedSize: 100,
+		Status:         models.StatusDownloading,
+		TotalChunks:    2,
+	}
+	if err := repo.InsertDownload(ctx, dl); err != nil {
+		t.Fatalf("InsertDownload error: %v", err)
+	}
+
+	chunks := []*models.Chunk{
+		{
+			ID:            "ch_flush_0",
+			DownloadID:    dl.ID,
+			ChunkIndex:    0,
+			StartOffset:   0,
+			EndOffset:     999,
+			CurrentOffset: 100,
+			Status:        models.ChunkStatusDownloading,
+		},
+		{
+			ID:            "ch_flush_1",
+			DownloadID:    dl.ID,
+			ChunkIndex:    1,
+			StartOffset:   1000,
+			EndOffset:     1999,
+			CurrentOffset: 1000,
+			Status:        models.ChunkStatusDownloading,
+		},
+	}
+	if err := repo.SaveChunks(ctx, chunks); err != nil {
+		t.Fatalf("SaveChunks error: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Repository:  repo,
+		Broadcaster: events.NewNullBroadcaster(),
+	})
+	defer mgr.Close()
+
+	// Simulate active task
+	taskCtx, taskCancel := context.WithCancel(context.Background())
+	defer taskCancel()
+	task := &activeTask{
+		ctx:      taskCtx,
+		cancel:   taskCancel,
+		download: dl,
+		chunks:   chunks,
+		doneChan: make(chan struct{}),
+	}
+	mgr.mu.Lock()
+	mgr.activeTasks[dl.ID] = task
+	mgr.mu.Unlock()
+
+	// Update chunk in-memory atomic counter
+	chunks[0].CurrentOffset = 450
+	chunks[1].CurrentOffset = 1350
+	dl.DownloadedSize = 800
+
+	// Flush dirty offsets across all active downloads
+	mgr.flushDirtyOffsets(ctx)
+
+	// Verify both chunks were updated in DB in single batch
+	updatedChunks, err := repo.GetChunks(ctx, dl.ID)
+	if err != nil {
+		t.Fatalf("GetChunks failed: %v", err)
+	}
+	if updatedChunks[0].CurrentOffset != 450 || updatedChunks[1].CurrentOffset != 1350 {
+		t.Errorf("chunk offsets not flushed properly: %+v", updatedChunks)
+	}
+
+	updatedDL, err := repo.GetDownload(ctx, dl.ID)
+	if err != nil {
+		t.Fatalf("GetDownload failed: %v", err)
+	}
+	if updatedDL.DownloadedSize != 800 {
+		t.Errorf("download progress not flushed properly: %+v", updatedDL)
+	}
+}

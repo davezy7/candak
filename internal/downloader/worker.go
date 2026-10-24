@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -34,7 +35,23 @@ type ChunkWorker struct {
 // NewChunkWorker constructs a ChunkWorker.
 func NewChunkWorker(client *http.Client, userAgent string) *ChunkWorker {
 	if client == nil {
-		client = http.DefaultClient
+		client = &http.Client{
+			Transport: &http.Transport{
+				Proxy: http.ProxyFromEnvironment,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				ForceAttemptHTTP2:   true,
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 32,
+				IdleConnTimeout:     90 * time.Second,
+				TLSHandshakeTimeout: 10 * time.Second,
+				DisableCompression:  true,
+				WriteBufferSize:     128 * 1024,
+				ReadBufferSize:      128 * 1024,
+			},
+		}
 	}
 	if userAgent == "" {
 		userAgent = "Candak-Download-Manager/1.0"
@@ -97,14 +114,13 @@ func (w *ChunkWorker) Download(
 			if ctx.Err() != nil {
 				status = models.ChunkStatusPending
 			}
-			_ = persist(context.Background(), chunk.ID, chunk.CurrentOffset, status)
+			_ = persist(context.Background(), chunk.ID, atomic.LoadInt64(&chunk.CurrentOffset), status)
 		}
 	}()
 
 	bufPtr := bufferPool.Get().(*[]byte)
 	defer bufferPool.Put(bufPtr)
 	buf := *bufPtr
-	lastPersisted := time.Now()
 
 	var bodyReader io.Reader = resp.Body
 	if chunk.EndOffset > 0 && chunk.EndOffset >= chunk.CurrentOffset {
@@ -121,22 +137,15 @@ func (w *ChunkWorker) Download(
 
 		n, readErr := bodyReader.Read(buf)
 		if n > 0 {
-			_, writeErr := writer.WriteAt(buf[:n], chunk.CurrentOffset)
+			current := atomic.LoadInt64(&chunk.CurrentOffset)
+			_, writeErr := writer.WriteAt(buf[:n], current)
 			if writeErr != nil {
 				chunk.Status = models.ChunkStatusError
 				return fmt.Errorf("chunk %d file write error: %w", chunk.ChunkIndex, writeErr)
 			}
 
-			chunk.CurrentOffset += int64(n)
+			atomic.AddInt64(&chunk.CurrentOffset, int64(n))
 			atomic.AddInt64(totalCounter, int64(n))
-
-			// Periodically save chunk offset to database (every 3 seconds)
-			if time.Since(lastPersisted) > 3*time.Second {
-				if persist != nil {
-					_ = persist(ctx, chunk.ID, chunk.CurrentOffset, models.ChunkStatusDownloading)
-				}
-				lastPersisted = time.Now()
-			}
 		}
 
 		if readErr != nil {

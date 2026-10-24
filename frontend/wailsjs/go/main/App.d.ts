@@ -52,6 +52,8 @@ export function SetClipboardWatching(arg1:boolean):Promise<boolean>;
 
 export function SetStartupSettings(arg1:models.StartupConfig):Promise<void>;
 
+export function SetWindowVisible(arg1:boolean):Promise<void>;
+
 export function ShowInFolder(arg1:string):Promise<void>;
 
 export function SuppressClipboardURL(arg1:string):Promise<void>;
