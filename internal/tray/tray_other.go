@@ -14,3 +14,8 @@ func (d *dummyTray) Start() error {
 }
 
 func (d *dummyTray) Stop() {}
+
+// ShowNotification is a no-op on non-Windows platforms.
+func ShowNotification(title, message string) bool {
+	return false
+}

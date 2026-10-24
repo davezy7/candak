@@ -46,6 +46,9 @@ const (
 	NIF_MESSAGE = 0x00000001
 	NIF_ICON    = 0x00000002
 	NIF_TIP     = 0x00000004
+	NIF_INFO    = 0x00000010
+
+	NIIF_INFO = 0x00000001
 
 	WM_DESTROY       = 0x0002
 	WM_CLOSE         = 0x0010
@@ -57,6 +60,8 @@ const (
 	WM_RBUTTONUP     = 0x0205
 	WM_CONTEXTMENU   = 0x007B
 	WM_NULL          = 0x0000
+
+	NIN_BALLOONUSERCLICK = 0x0405
 
 	MF_STRING    = 0x00000000
 	MF_SEPARATOR = 0x00000800
@@ -150,6 +155,12 @@ func (t *winTray) Start() error {
 
 func (t *winTray) Stop() {
 	t.stopOnce.Do(func() {
+		activeTrayMu.Lock()
+		if activeTray == t {
+			activeTray = nil
+		}
+		activeTrayMu.Unlock()
+
 		if t.hwnd != 0 {
 			procPostMessageW.Call(t.hwnd, WM_CLOSE, 0, 0)
 		}
@@ -163,6 +174,56 @@ func stringToUTF16Fixed128(s string) [128]uint16 {
 		result[i] = u16[i]
 	}
 	return result
+}
+
+func stringToUTF16Fixed64(s string) [64]uint16 {
+	var result [64]uint16
+	u16 := windows.StringToUTF16(s)
+	for i := 0; i < len(u16) && i < 63; i++ {
+		result[i] = u16[i]
+	}
+	return result
+}
+
+func stringToUTF16Fixed256(s string) [256]uint16 {
+	var result [256]uint16
+	u16 := windows.StringToUTF16(s)
+	for i := 0; i < len(u16) && i < 255; i++ {
+		result[i] = u16[i]
+	}
+	return result
+}
+
+// ShowNotification displays a native Windows balloon/toast notification via this tray icon.
+func (t *winTray) ShowNotification(title, message string) error {
+	if t.hwnd == 0 {
+		return fmt.Errorf("tray window not ready")
+	}
+
+	nid := t.nid
+	nid.UFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_INFO
+	nid.DwInfoFlags = NIIF_INFO
+	nid.SzInfoTitle = stringToUTF16Fixed64(title)
+	nid.SzInfo = stringToUTF16Fixed256(message)
+	nid.UTimeoutOrVer = 3000
+
+	ret, _, err := procShellNotifyIconW.Call(NIM_MODIFY, uintptr(unsafe.Pointer(&nid)))
+	if ret == 0 {
+		return fmt.Errorf("failed to show tray notification: %w", err)
+	}
+	return nil
+}
+
+// ShowNotification displays a native Windows balloon/toast notification via the active system tray icon.
+func ShowNotification(title, message string) bool {
+	activeTrayMu.Lock()
+	t := activeTray
+	activeTrayMu.Unlock()
+
+	if t == nil {
+		return false
+	}
+	return t.ShowNotification(title, message) == nil
 }
 
 func (t *winTray) runMessageLoop() {
@@ -247,7 +308,7 @@ func trayWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
 	case WM_TRAY_MSG:
 		switch lParam {
-		case WM_LBUTTONUP, WM_LBUTTONDBLCLK:
+		case WM_LBUTTONUP, WM_LBUTTONDBLCLK, NIN_BALLOONUSERCLICK:
 			if t.callbacks.OnOpen != nil {
 				go t.callbacks.OnOpen()
 			}
