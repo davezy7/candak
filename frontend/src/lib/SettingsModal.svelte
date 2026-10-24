@@ -8,7 +8,9 @@
     GetLoopbackStatus,
     GetExtensionDir,
     SetClipboardWatching,
-    IsClipboardWatching
+    IsClipboardWatching,
+    GetStartupSettings,
+    SetStartupSettings
   } from '@wails/go/main/App.js';
   import { 
     X, 
@@ -26,7 +28,8 @@
     Globe,
     Clipboard,
     ExternalLink,
-    ShieldCheck
+    ShieldCheck,
+    Power
   } from 'lucide-svelte';
   import { DEFAULT_ACCEPTED_EXTENSIONS } from './formatters.js';
 
@@ -50,6 +53,10 @@
   let loopbackStatus = { running: false, address: '', port: 41920 };
   let extensionDir = '';
   let clipboardWatching = false;
+
+  // System Startup State
+  let startupEnabled = false;
+  let startupMinimized = false;
 
   theme.subscribe((val) => {
     currentTheme = val;
@@ -85,6 +92,17 @@
         clipboardWatching = await IsClipboardWatching();
       } catch (e) {
         console.error('Failed to load integration status:', e);
+      }
+
+      // Load startup settings
+      try {
+        const startupCfg = await GetStartupSettings();
+        if (startupCfg) {
+          startupEnabled = Boolean(startupCfg.enabled);
+          startupMinimized = Boolean(startupCfg.minimized);
+        }
+      } catch (e) {
+        console.error('Failed to load startup settings:', e);
       }
     } catch (e) {
       console.error(e);
@@ -233,6 +251,41 @@
     }
   }
 
+  async function handleToggleStartup(e) {
+    const prev = startupEnabled;
+    const nextEnabled = !prev;
+    try {
+      await SetStartupSettings({
+        enabled: nextEnabled,
+        minimized: startupMinimized
+      });
+      startupEnabled = nextEnabled;
+      flashMessage(nextEnabled ? 'Enabled launch on system startup' : 'Disabled launch on system startup');
+    } catch (err) {
+      if (e && e.target) e.target.checked = prev;
+      console.error('Failed to update startup settings:', err);
+      flashMessage('Failed to update startup settings');
+    }
+  }
+
+  async function handleToggleStartupMinimized(e) {
+    if (!startupEnabled) return;
+    const prev = startupMinimized;
+    const nextMinimized = !prev;
+    try {
+      await SetStartupSettings({
+        enabled: startupEnabled,
+        minimized: nextMinimized
+      });
+      startupMinimized = nextMinimized;
+      flashMessage(nextMinimized ? 'Enabled start minimized to tray' : 'Disabled start minimized to tray');
+    } catch (err) {
+      if (e && e.target) e.target.checked = prev;
+      console.error('Failed to update startup minimized settings:', err);
+      flashMessage('Failed to update startup settings');
+    }
+  }
+
   function handleKeydown(event) {
     if (event.key === 'Escape') {
       onClose();
@@ -324,6 +377,51 @@
               <Monitor size={20} strokeWidth={2.2} />
               <span>Auto (System)</span>
             </button>
+          </div>
+        </div>
+
+        <!-- Section: System Startup -->
+        <div>
+          <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
+            System Startup
+          </h4>
+          <div class="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-4 space-y-3.5">
+            <div class="flex items-start gap-3">
+              <div class="w-8 h-8 rounded-xl bg-[var(--color-accent-subtle)] text-[var(--color-accent)] flex items-center justify-center shrink-0 mt-0.5">
+                <Power size={17} />
+              </div>
+              <div class="flex-1 space-y-3">
+                <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                  <input 
+                    type="checkbox" 
+                    checked={startupEnabled} 
+                    on:change={handleToggleStartup}
+                    class="w-4 h-4 rounded text-[var(--color-accent)] accent-[var(--color-accent)] cursor-pointer"
+                  />
+                  <div>
+                    <span class="text-xs font-semibold text-[var(--color-text)] block">Launch Candak on system startup</span>
+                    <span class="text-[11px] text-[var(--color-secondary)] block">Automatically start Candak when your computer boots up</span>
+                  </div>
+                </label>
+
+                <!-- Sub-checkbox: Start minimized to system tray -->
+                <div class="pl-6.5 transition-opacity {startupEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}">
+                  <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                    <input 
+                      type="checkbox" 
+                      checked={startupMinimized} 
+                      disabled={!startupEnabled}
+                      on:change={handleToggleStartupMinimized}
+                      class="w-4 h-4 rounded text-[var(--color-accent)] accent-[var(--color-accent)] cursor-pointer disabled:cursor-not-allowed"
+                    />
+                    <div>
+                      <span class="text-xs font-medium text-[var(--color-text)] block">Start minimized to system tray</span>
+                      <span class="text-[11px] text-[var(--color-secondary)] block">Run silently in tray daemon mode without opening the main window</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

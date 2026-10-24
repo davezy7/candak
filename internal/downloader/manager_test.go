@@ -162,3 +162,89 @@ func (w *testWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
 	copy(w.buf[off:], p)
 	return len(p), nil
 }
+
+func TestResumeUnfinishedDownloads(t *testing.T) {
+	ctx := context.Background()
+	payload := []byte("TEST_RESUME_UNFINISHED_DATA")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "candak-resume-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	repo, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to init sqlite repo: %v", err)
+	}
+	defer repo.Close()
+
+	// Insert an interrupted download with StatusDownloading directly into repo
+	dl := &models.Download{
+		ID:             "dl_interrupted_1",
+		URL:            server.URL + "/file.bin",
+		Filename:       "interrupted.bin",
+		SavePath:       filepath.Join(tempDir, "interrupted.bin"),
+		TotalSize:      int64(len(payload)),
+		DownloadedSize: 0,
+		Status:         models.StatusDownloading,
+		Resumable:      true,
+		TotalChunks:    1,
+		CreatedAt:      time.Now().Format(time.RFC3339),
+		UpdatedAt:      time.Now().Format(time.RFC3339),
+	}
+	if err := repo.InsertDownload(ctx, dl); err != nil {
+		t.Fatalf("Failed to save initial download: %v", err)
+	}
+	chunks := []*models.Chunk{
+		{
+			ID:            "chunk_1",
+			DownloadID:    dl.ID,
+			ChunkIndex:    0,
+			StartOffset:   0,
+			EndOffset:     int64(len(payload) - 1),
+			CurrentOffset: 0,
+			Status:        models.ChunkStatusDownloading,
+		},
+	}
+	if err := repo.SaveChunks(ctx, chunks); err != nil {
+		t.Fatalf("Failed to save initial chunks: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Repository:   repo,
+		Prober:       prober.NewHTTPProber(prober.WithHTTPClient(server.Client())),
+		ChunkPlanner: planner.NewDefaultChunkPlanner(),
+		Broadcaster:  events.NewNullBroadcaster(),
+		HTTPClient:   server.Client(),
+	})
+
+	err = mgr.ResumeUnfinishedDownloads(ctx)
+	if err != nil {
+		t.Fatalf("ResumeUnfinishedDownloads failed: %v", err)
+	}
+
+	// Poll until completed
+	deadline := time.Now().Add(5 * time.Second)
+	var finalDL *models.Download
+	for time.Now().Before(deadline) {
+		finalDL, _ = repo.GetDownload(ctx, dl.ID)
+		if finalDL != nil && finalDL.Status == models.StatusCompleted {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if finalDL == nil || finalDL.Status != models.StatusCompleted {
+		t.Fatalf("Expected download to complete after resume, status: %v", finalDL.Status)
+	}
+}
