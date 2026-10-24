@@ -1,6 +1,16 @@
 <script>
   import { onMount } from 'svelte';
-  import { ProbeURL, ProbeURLWithHeaders, AddDownload, SelectDirectory, GetDefaultDownloadDir, SuppressClipboardURL, ClosePromptWindow } from '@wails/go/main/App.js';
+  import { 
+    ProbeURL, 
+    ProbeURLWithHeaders, 
+    AddDownload, 
+    AddBatchDownloads, 
+    BatchProbeURLs, 
+    SelectDirectory, 
+    GetDefaultDownloadDir, 
+    SuppressClipboardURL, 
+    ClosePromptWindow 
+  } from '@wails/go/main/App.js';
   import { WindowSetSize } from '@wails/runtime/runtime.js';
   import { formatBytes, getFileExtension, DEFAULT_ACCEPTED_EXTENSIONS } from './formatters.js';
   import { 
@@ -42,6 +52,48 @@
   let lastProbedUrl = '';
   let isExpanded = false;
 
+  // Mode Selection: 'single' | 'batch'
+  let activeMode = 'single';
+  $: isBatchMode = activeMode === 'batch';
+
+  // Batch Mode State
+  let batchText = '';
+  let batchItems = [];
+  let isBatchProbing = false;
+  let batchProbeTimer = null;
+
+  $: hasErrors = batchItems.some(it => it.status === 'error');
+  $: selectedCount = batchItems.filter(it => it.selected).length;
+
+  function setMode(mode) {
+    activeMode = mode;
+    if (mode === 'batch') {
+      if (!batchText.trim() && url.trim()) {
+        batchText = url.trim();
+        syncBatchFromUrls(extractDistinctUrls(batchText));
+      }
+    } else if (mode === 'single') {
+      if (!url.trim() && batchItems.length > 0) {
+        url = batchItems[0].url;
+        filename = batchItems[0].filename;
+        if (batchItems[0].status === 'valid') {
+          probeResult = {
+            filename: batchItems[0].filename,
+            totalSize: batchItems[0].totalSize,
+            resumable: batchItems[0].resumable
+          };
+        }
+      }
+    }
+    if (isStandalone) {
+      if (mode === 'batch') {
+        WindowSetSize(620, 540);
+      } else {
+        WindowSetSize(500, isExpanded ? 390 : 220);
+      }
+    }
+  }
+
   function toggleExpand() {
     isExpanded = !isExpanded;
     if (isStandalone) {
@@ -54,16 +106,20 @@
   }
 
   $: if (isOpen && grabbedData) {
-    if (grabbedData.url && grabbedData.url !== url) {
-      url = grabbedData.url;
-      filename = grabbedData.filename || '';
-      headers = grabbedData.headers || {};
+    if (grabbedData.url && grabbedData.url !== url && grabbedData.url !== batchText) {
+      if (!checkAndTransitionBatch(grabbedData.url)) {
+        url = grabbedData.url;
+        filename = grabbedData.filename || '';
+        headers = grabbedData.headers || {};
+        handleProbe();
+      }
+    }
+  } else if (isOpen && initialUrl && initialUrl !== url && initialUrl !== batchText) {
+    if (!checkAndTransitionBatch(initialUrl)) {
+      url = initialUrl;
+      headers = {};
       handleProbe();
     }
-  } else if (isOpen && initialUrl && initialUrl !== url) {
-    url = initialUrl;
-    headers = {};
-    handleProbe();
   }
 
   $: if (isOpen) {
@@ -148,8 +204,169 @@
     }
   });
 
+  function extractDistinctUrls(text) {
+    if (!text) return [];
+    // Extract any http/https URLs from free text, ignoring brackets, quotes, and whitespace
+    const matches = text.match(/https?:\/\/[^\s"'<>\)\]\}]+/gi) || [];
+    const cleaned = matches.map(u => {
+      let trimmed = u.trim();
+      // Remove trailing punctuation common in free-form text or sentences
+      trimmed = trimmed.replace(/[.,;:]+$/, '');
+      return trimmed;
+    }).filter(u => u.startsWith('http://') || u.startsWith('https://'));
+    return Array.from(new Set(cleaned));
+  }
+
+  function getDomain(rawUrl) {
+    try {
+      const u = new URL(rawUrl);
+      return u.hostname;
+    } catch (_) {
+      return 'link';
+    }
+  }
+
+  function getFallbackFilename(rawUrl) {
+    try {
+      const u = new URL(rawUrl);
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts.length > 0) {
+        return decodeURIComponent(parts[parts.length - 1]);
+      }
+    } catch (_) {}
+    return 'download.bin';
+  }
+
+  function checkAndTransitionBatch(text) {
+    if (!text) return false;
+    const urls = extractDistinctUrls(text);
+    const hasNewline = text.includes('\n');
+    if (urls.length > 1 || (hasNewline && urls.length >= 1 && text.trim().split('\n').filter(l => l.trim()).length > 1)) {
+      setMode('batch');
+      batchText = text;
+      syncBatchFromUrls(urls);
+      return true;
+    }
+    return false;
+  }
+
+  function isExtensionAccepted(targetName) {
+    const enforce = localStorage.getItem('candak_enforce_extensions') === 'true';
+    if (!enforce) return true;
+    const raw = localStorage.getItem('candak_accepted_extensions');
+    let accepted = DEFAULT_ACCEPTED_EXTENSIONS;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) accepted = parsed;
+      } catch (_) {}
+    }
+    const ext = getFileExtension(targetName);
+    return !ext || accepted.includes(ext.toLowerCase());
+  }
+
+  function syncBatchFromUrls(urls) {
+    const existingMap = new Map();
+    for (const item of batchItems) {
+      existingMap.set(item.url, item);
+    }
+
+    const unprobed = [];
+    const newItems = urls.map((u, idx) => {
+      if (existingMap.has(u)) {
+        return existingMap.get(u);
+      }
+      unprobed.push(u);
+      const fallback = getFallbackFilename(u);
+      const extAllowed = isExtensionAccepted(fallback);
+      return {
+        id: `batch_${idx}_${Date.now()}`,
+        url: u,
+        domain: getDomain(u),
+        selected: extAllowed,
+        blockedExt: !extAllowed,
+        status: 'probing',
+        filename: fallback,
+        totalSize: 0,
+        resumable: false,
+        error: ''
+      };
+    });
+
+    batchItems = newItems;
+    if (unprobed.length > 0) {
+      runBatchProbe(unprobed);
+    }
+  }
+
+  function handleBatchInput() {
+    clearTimeout(batchProbeTimer);
+    batchProbeTimer = setTimeout(() => {
+      const urls = extractDistinctUrls(batchText);
+      syncBatchFromUrls(urls);
+    }, 400);
+  }
+
+  async function runBatchProbe(urls) {
+    if (!urls || urls.length === 0) return;
+    isBatchProbing = true;
+    try {
+      const results = await BatchProbeURLs(urls);
+      results.forEach((res, i) => {
+        const targetUrl = urls[i];
+        const item = batchItems.find(it => it.url === targetUrl);
+        if (item) {
+          if (res.error) {
+            item.status = 'error';
+            item.error = res.error;
+            item.filename = res.filename || item.filename;
+          } else {
+            item.status = 'valid';
+            item.error = '';
+            item.filename = res.filename || item.filename;
+            item.totalSize = res.totalSize || 0;
+            item.resumable = res.resumable || false;
+            const extAllowed = isExtensionAccepted(item.filename);
+            item.blockedExt = !extAllowed;
+            if (!extAllowed) item.selected = false;
+          }
+        }
+      });
+      batchItems = [...batchItems];
+    } catch (err) {
+      console.error('Batch probe failed:', err);
+      batchItems.forEach(it => {
+        if (urls.includes(it.url) && it.status === 'probing') {
+          it.status = 'error';
+          it.error = String(err);
+        }
+      });
+      batchItems = [...batchItems];
+    } finally {
+      isBatchProbing = false;
+    }
+  }
+
+  function handleSelectAll() {
+    batchItems = batchItems.map(it => ({ ...it, selected: true }));
+  }
+
+  function handleDeselectBroken() {
+    batchItems = batchItems.map(it => {
+      if (it.status === 'error') {
+        return { ...it, selected: false };
+      }
+      return it;
+    });
+  }
+
+  function switchToSingle() {
+    setMode('single');
+  }
+
   function handleUrlInput() {
     clearTimeout(probeTimer);
+    if (checkAndTransitionBatch(url)) return;
     const trimmed = url.trim();
     if (!trimmed || !trimmed.startsWith('http')) return;
     if (trimmed === lastProbedUrl) return;
@@ -160,9 +377,15 @@
     }, 400);
   }
 
-  function handleUrlPaste() {
+  function handleUrlPaste(event) {
     clearTimeout(probeTimer);
+    const clipboardText = event.clipboardData ? event.clipboardData.getData('text') : '';
+    if (clipboardText && checkAndTransitionBatch(clipboardText)) {
+      event.preventDefault();
+      return;
+    }
     setTimeout(() => {
+      if (checkAndTransitionBatch(url)) return;
       handleProbe();
     }, 50);
   }
@@ -262,6 +485,45 @@
     }
   }
 
+  async function handleBatchSubmit() {
+    const selected = batchItems.filter(it => it.selected);
+    if (selected.length === 0) return;
+
+    const enforce = localStorage.getItem('candak_enforce_extensions') === 'true';
+    if (enforce) {
+      const blocked = selected.filter(it => !isExtensionAccepted(it.filename));
+      if (blocked.length > 0) {
+        probeError = `${blocked.length} selected item(s) have unapproved extensions. Uncheck them or allow their extension.`;
+        return;
+      }
+    }
+
+    isSubmitting = true;
+
+    try {
+      const requests = selected.map(it => ({
+        url: it.url,
+        filename: it.filename || '',
+        saveDir: saveDir,
+        connections: parseInt(connections, 10) || 4,
+        headers: {},
+        totalSize: it.totalSize || 0,
+        resumable: !!it.resumable
+      }));
+
+      await AddBatchDownloads(requests);
+      if (isStandalone) {
+        await ClosePromptWindow(true, `${selected.length} downloads`, 0);
+      }
+      onAdded();
+      handleClose();
+    } catch (err) {
+      probeError = String(err);
+    } finally {
+      isSubmitting = false;
+    }
+  }
+
   function handleClose() {
     if (isStandalone) {
       ClosePromptWindow(false, '', 0);
@@ -277,6 +539,10 @@
     isProbing = false;
     extensionNotice = '';
     rejectedExtension = '';
+    activeMode = 'single';
+    batchText = '';
+    batchItems = [];
+    isBatchProbing = false;
     onClose();
   }
 
@@ -291,8 +557,15 @@
     }
     if (event.key === 'Escape') {
       handleClose();
-    } else if (event.key === 'Enter' && !isSubmitting && url.trim()) {
-      handleSubmit();
+    } else if (event.key === 'Enter' && !isSubmitting) {
+      if (event.target && event.target.tagName === 'TEXTAREA') {
+        return;
+      }
+      if (isBatchMode) {
+        if (selectedCount > 0) handleBatchSubmit();
+      } else if (url.trim()) {
+        handleSubmit();
+      }
     }
   }
 </script>
@@ -311,7 +584,7 @@
     <div 
       class={isStandalone 
         ? "w-full h-full flex flex-col justify-between overflow-hidden" 
-        : "bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"}
+        : `bg-[var(--color-surface)] border border-[var(--color-border)] rounded-3xl w-full ${isBatchMode ? 'max-w-2xl' : 'max-w-lg'} shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150`}
       style={isStandalone ? "--wails-draggable: drag;" : ""}
       role="dialog"
       aria-modal="true"
@@ -322,14 +595,18 @@
         <div class="px-6 py-5 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-bg)]/60">
           <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-2xl bg-[var(--color-accent-subtle)] flex items-center justify-center text-[var(--color-accent)]">
-              <Download size={20} strokeWidth={2.5} />
+              {#if isBatchMode}
+                <Link size={20} strokeWidth={2.5} />
+              {:else}
+                <Download size={20} strokeWidth={2.5} />
+              {/if}
             </div>
             <div>
               <h3 id="modal-title" class="font-bold text-[var(--color-text)] text-base">
-                {grabbedData ? 'Download Prompt' : 'Add New Download'}
+                {isBatchMode ? 'Batch Multi-Download' : (grabbedData ? 'Download Prompt' : 'Add New Download')}
               </h3>
               <p class="text-xs text-[var(--color-secondary)]">
-                {grabbedData ? 'URL captured • Review details and start download' : 'Multi-thread concurrent chunking with resume support'}
+                {isBatchMode ? `${batchItems.length} link${batchItems.length === 1 ? '' : 's'} detected • Pre-flight review & batch enqueue` : (grabbedData ? 'URL captured • Review details and start download' : 'Multi-thread concurrent chunking with resume support')}
               </p>
             </div>
           </div>
@@ -344,158 +621,332 @@
       {/if}
 
       <!-- Form Body -->
-      <form on:submit|preventDefault={handleSubmit} class="{isStandalone ? 'p-4 space-y-3' : 'p-6 space-y-4'} flex-1 overflow-y-auto">
-        <!-- URL Input with Simplified Inline File Size & Copy Button -->
-        <div>
-          <div class="flex items-center justify-between mb-1.5">
-            <label for="download-url" class="text-xs font-semibold text-[var(--color-text)]">Download URL</label>
-            <div class="flex items-center gap-2.5">
-              <!-- Simplified Inline File Size -->
-              {#if isProbing}
-                <span class="flex items-center gap-1 text-[11px] text-[var(--color-accent)] font-medium">
-                  <Loader2 size={11} class="animate-spin" />
-                  Calculating...
-                </span>
-              {:else if probeResult && probeResult.totalSize > 0}
-                <span class="text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent-subtle)] px-2 py-0.5 rounded-md">
-                  {formatBytes(probeResult.totalSize)}
-                </span>
-              {:else if probeResult || probeError}
-                <span class="text-[11px] font-medium text-[var(--color-secondary)]">Size: Unknown</span>
-              {/if}
-
-              {#if url}
-                <button
-                  type="button"
-                  on:click={handleCopyUrl}
-                  class="text-[11px] font-medium text-[var(--color-secondary)] hover:text-[var(--color-accent)] flex items-center gap-1 transition cursor-pointer"
-                  title="Copy URL"
-                >
-                  {#if copiedUrl}
-                    <Check size={12} class="text-emerald-500" />
-                    <span class="text-emerald-500">Copied</span>
-                  {:else}
-                    <Copy size={12} />
-                    <span>Copy</span>
-                  {/if}
-                </button>
-              {/if}
-            </div>
-          </div>
-
-          <div class="relative flex items-center">
-            <input 
-              id="download-url"
-              type="url" 
-              bind:value={url}
-              on:input={handleUrlInput}
-              on:paste={handleUrlPaste}
-              on:blur={handleProbe}
-              placeholder="https://example.com/file.zip"
-              required
-              class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3.5 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-secondary)]/60 focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 font-mono transition {isProbing ? 'pr-9' : ''}"
-            />
-            {#if isProbing}
-              <div class="absolute right-3 pointer-events-none text-[var(--color-accent)]">
-                <Loader2 size={15} class="animate-spin" />
-              </div>
-            {/if}
-          </div>
-        </div>
-
-        <!-- Extension Warning Banner -->
-        {#if extensionNotice}
-          <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-2.5 text-xs text-amber-600 dark:text-amber-400 flex items-center justify-between gap-2 animate-in fade-in">
-            <div class="flex items-center gap-2 min-w-0">
-              <ShieldAlert size={15} class="shrink-0 text-amber-500" />
-              <span class="truncate">{extensionNotice}</span>
-            </div>
-            <button 
+      <form on:submit|preventDefault={isBatchMode ? handleBatchSubmit : handleSubmit} class="{isStandalone ? 'p-4 space-y-3' : 'p-6 space-y-4'} flex-1 overflow-y-auto">
+        <!-- Explicit Mode Tabs: Single File vs Batch URLs -->
+        {#if !isStandalone}
+          <div class="flex items-center p-1 bg-[var(--color-input)] rounded-2xl border border-[var(--color-border)]">
+            <button
               type="button"
-              on:click={handleAllowExtension}
-              class="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 font-bold rounded-lg transition text-[11px] shrink-0 flex items-center gap-1 cursor-pointer"
+              on:click={() => setMode('single')}
+              class="flex-1 py-1.5 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer {activeMode === 'single' ? 'bg-[var(--color-surface)] text-[var(--color-accent)] shadow-xs' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'}"
             >
-              <Plus size={11} strokeWidth={3} />
-              <span>Allow .{rejectedExtension}</span>
+              <Download size={13} strokeWidth={2.2} />
+              Single File
+            </button>
+            <button
+              type="button"
+              on:click={() => setMode('batch')}
+              class="flex-1 py-1.5 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer {activeMode === 'batch' ? 'bg-[var(--color-surface)] text-[var(--color-accent)] shadow-xs' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'}"
+            >
+              <Link size={13} strokeWidth={2.2} />
+              Batch URLs
+              {#if batchItems.length > 0}
+                <span class="px-1.5 py-0.2 text-[10px] rounded-full bg-[var(--color-accent)]/15 text-[var(--color-accent)] font-mono">
+                  {batchItems.length}
+                </span>
+              {/if}
             </button>
           </div>
         {/if}
 
-        <!-- Expandable Options (Filename, Save Path & Connections) -->
-        <div>
-          <button 
-            type="button"
-            on:click={toggleExpand}
-            class="flex items-center gap-1 text-xs text-[var(--color-secondary)] hover:text-[var(--color-accent)] font-medium transition cursor-pointer select-none py-0.5"
-          >
-            <ChevronDown size={14} class="transition-transform duration-200 {isExpanded ? 'rotate-180' : ''}" />
-            <span>{isExpanded ? 'Hide options' : 'More options (filename, save path)'}</span>
-            {#if !isExpanded && (filename || probeResult?.filename)}
-              <span class="text-[11px] text-[var(--color-secondary)]/70 font-mono truncate max-w-[200px] ml-1">
-                ({filename || probeResult?.filename})
+        {#if isBatchMode}
+          <!-- Batch URL Importer (Multi-line field / Free text) -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label for="batch-urls" class="text-xs font-semibold text-[var(--color-text)] flex items-center gap-1.5">
+                <Link size={13} class="text-[var(--color-accent)]" />
+                Batch Links / Free Text
+              </label>
+              <span class="text-[11px] text-[var(--color-secondary)] font-medium">
+                {batchItems.length} link{batchItems.length === 1 ? '' : 's'} detected
               </span>
-            {/if}
-          </button>
+            </div>
+            <textarea
+              id="batch-urls"
+              bind:value={batchText}
+              on:input={handleBatchInput}
+              placeholder="Paste links (one per line, comma-separated) or free text containing URLs...&#10;https://example.com/file1.zip&#10;https://example.com/file2.zip"
+              rows="4"
+              class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3.5 py-2.5 text-xs font-mono text-[var(--color-text)] placeholder-[var(--color-secondary)]/60 focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 resize-y transition"
+            ></textarea>
+            <p class="text-[11px] text-[var(--color-secondary)]/75 mt-1">
+              Candak automatically detects and extracts distinct HTTP/HTTPS links from multi-line lists or unstructured text.
+            </p>
+          </div>
 
-          {#if isExpanded}
-            <div class="mt-2.5 space-y-3 pt-2.5 border-t border-[var(--color-border)]/50 animate-in fade-in duration-150">
-              <!-- Target Filename -->
-              <div>
-                <label for="download-filename" class="block text-xs font-semibold text-[var(--color-text)] mb-1">Save As Filename</label>
-                <input 
-                  id="download-filename"
-                  type="text" 
-                  bind:value={filename}
-                  placeholder={probeResult?.filename || "auto-detected-filename.bin"}
-                  class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] placeholder-[var(--color-secondary)]/60 focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 transition"
-                />
-              </div>
-
-              <!-- Save Directory -->
-              <div>
-                <label for="download-dir" class="block text-xs font-semibold text-[var(--color-text)] mb-1">Save Path</label>
-                <div class="flex gap-2">
-                  <input 
-                    id="download-dir"
-                    type="text" 
-                    bind:value={saveDir}
-                    placeholder="/Downloads"
-                    class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] font-mono focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 transition"
-                  />
-                  <button 
+          <!-- Pre-Flight Batch Review List & Controls -->
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-semibold text-[var(--color-text)]">
+                Pre-Flight Review ({selectedCount}/{batchItems.length} selected)
+              </span>
+              <div class="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  on:click={handleSelectAll}
+                  class="text-[11px] font-medium text-[var(--color-secondary)] hover:text-[var(--color-text)] px-2 py-0.5 rounded-lg border border-[var(--color-border)]/60 bg-[var(--color-bg)] transition cursor-pointer"
+                >
+                  Select All
+                </button>
+                {#if hasErrors}
+                  <button
                     type="button"
-                    on:click={handleBrowse}
-                    class="px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] text-xs font-medium rounded-xl border border-[var(--color-border)] shadow-2xs transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    on:click={handleDeselectBroken}
+                    class="text-[11px] font-medium text-rose-500 hover:text-rose-600 px-2 py-0.5 rounded-lg border border-rose-500/30 bg-rose-500/10 transition cursor-pointer"
                   >
-                    <Folder size={14} class="text-[var(--color-secondary)]" />
-                    Browse
+                    Deselect Broken
                   </button>
-                </div>
-              </div>
-
-              <!-- Concurrent Chunks / Connections -->
-              <div>
-                <div class="flex items-center justify-between mb-1">
-                  <label for="download-connections" class="text-xs font-semibold text-[var(--color-text)] flex items-center gap-1">
-                    <Zap size={13} class="text-[var(--color-accent)]" />
-                    Parallel Connections
-                  </label>
-                  <span class="text-xs font-bold text-[var(--color-accent)]">{connections} threads</span>
-                </div>
-                <input 
-                  id="download-connections"
-                  type="range" 
-                  min="1" 
-                  max="16" 
-                  step="1" 
-                  bind:value={connections}
-                  disabled={probeResult && !probeResult.resumable}
-                  class="w-full accent-[var(--color-accent)] bg-[var(--color-border)] h-1.5 rounded-lg cursor-pointer disabled:opacity-40"
-                />
+                {/if}
               </div>
             </div>
+
+            <!-- Scrollable List of Detected URLs -->
+            <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+              {#each batchItems as item, idx (item.url + '_' + idx)}
+                <div class="flex items-center gap-2.5 p-2 rounded-xl border border-[var(--color-border)]/60 bg-[var(--color-input)]/40 hover:bg-[var(--color-input)] transition">
+                  <input
+                    type="checkbox"
+                    bind:checked={item.selected}
+                    class="accent-[var(--color-accent)] w-4 h-4 rounded cursor-pointer shrink-0"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-1.5 mb-0.5">
+                      <span class="px-1.5 py-0.2 rounded text-[10px] font-mono font-semibold bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-secondary)] shrink-0">
+                        {item.domain}
+                      </span>
+                      <span class="text-xs font-semibold text-[var(--color-text)] truncate" title={item.filename}>
+                        {item.filename}
+                      </span>
+                      {#if item.blockedExt}
+                        <span class="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-500 border border-amber-500/20 shrink-0">
+                          Blocked ext
+                        </span>
+                      {/if}
+                    </div>
+                    <div class="text-[11px] text-[var(--color-secondary)]/80 font-mono truncate" title={item.url}>
+                      {item.url}
+                    </div>
+                  </div>
+                  <div class="shrink-0 text-right">
+                    {#if item.status === 'probing'}
+                      <span class="flex items-center gap-1 text-[11px] text-[var(--color-accent)] font-medium">
+                        <Loader2 size={12} class="animate-spin" />
+                        Probing...
+                      </span>
+                    {:else if item.status === 'valid'}
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-[11px] font-bold text-[var(--color-accent)] bg-[var(--color-accent-subtle)] px-2 py-0.5 rounded-md">
+                          {item.totalSize > 0 ? formatBytes(item.totalSize) : 'Unknown size'}
+                        </span>
+                        <CheckCircle size={14} class="text-emerald-500" />
+                      </div>
+                    {:else if item.status === 'error'}
+                      <div class="flex items-center gap-1 text-[11px] text-rose-500 bg-rose-500/10 border border-rose-500/20 px-2 py-0.5 rounded-md max-w-[130px] truncate" title={item.error}>
+                        <AlertCircle size={12} class="shrink-0" />
+                        <span class="truncate">{item.error || 'Failed'}</span>
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Unified Save Directory & Connections -->
+          <div class="space-y-3 pt-2 border-t border-[var(--color-border)]/50">
+            <div>
+              <label for="batch-save-dir" class="block text-xs font-semibold text-[var(--color-text)] mb-1">Destination Directory</label>
+              <div class="flex gap-2">
+                <input 
+                  id="batch-save-dir"
+                  type="text" 
+                  bind:value={saveDir}
+                  placeholder="/Downloads"
+                  class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] font-mono focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 transition"
+                />
+                <button 
+                  type="button"
+                  on:click={handleBrowse}
+                  class="px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] text-xs font-medium rounded-xl border border-[var(--color-border)] shadow-2xs transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Folder size={14} class="text-[var(--color-secondary)]" />
+                  Browse
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <label for="batch-connections" class="text-xs font-semibold text-[var(--color-text)] flex items-center gap-1">
+                  <Zap size={13} class="text-[var(--color-accent)]" />
+                  Parallel Connections (per download)
+                </label>
+                <span class="text-xs font-bold text-[var(--color-accent)]">{connections} threads</span>
+              </div>
+              <input 
+                id="batch-connections"
+                type="range" 
+                min="1" 
+                max="16" 
+                step="1" 
+                bind:value={connections}
+                class="w-full accent-[var(--color-accent)] bg-[var(--color-border)] h-1.5 rounded-lg cursor-pointer"
+              />
+            </div>
+          </div>
+        {:else}
+          <!-- Single URL Input with Simplified Inline File Size & Copy Button -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label for="download-url" class="text-xs font-semibold text-[var(--color-text)]">Download URL</label>
+              <div class="flex items-center gap-2.5">
+                <!-- Simplified Inline File Size -->
+                {#if isProbing}
+                  <span class="flex items-center gap-1 text-[11px] text-[var(--color-accent)] font-medium">
+                    <Loader2 size={11} class="animate-spin" />
+                    Calculating...
+                  </span>
+                {:else if probeResult && probeResult.totalSize > 0}
+                  <span class="text-xs font-bold text-[var(--color-accent)] bg-[var(--color-accent-subtle)] px-2 py-0.5 rounded-md">
+                    {formatBytes(probeResult.totalSize)}
+                  </span>
+                {:else if probeResult || probeError}
+                  <span class="text-[11px] font-medium text-[var(--color-secondary)]">Size: Unknown</span>
+                {/if}
+
+                {#if url}
+                  <button
+                    type="button"
+                    on:click={handleCopyUrl}
+                    class="text-[11px] font-medium text-[var(--color-secondary)] hover:text-[var(--color-accent)] flex items-center gap-1 transition cursor-pointer"
+                    title="Copy URL"
+                  >
+                    {#if copiedUrl}
+                      <Check size={12} class="text-emerald-500" />
+                      <span class="text-emerald-500">Copied</span>
+                    {:else}
+                      <Copy size={12} />
+                      <span>Copy</span>
+                    {/if}
+                  </button>
+                {/if}
+              </div>
+            </div>
+
+            <div class="relative flex items-center">
+              <input 
+                id="download-url"
+                type="url" 
+                bind:value={url}
+                on:input={handleUrlInput}
+                on:paste={handleUrlPaste}
+                on:blur={handleProbe}
+                placeholder="https://example.com/file.zip"
+                required
+                class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3.5 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-secondary)]/60 focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 font-mono transition {isProbing ? 'pr-9' : ''}"
+              />
+              {#if isProbing}
+                <div class="absolute right-3 pointer-events-none text-[var(--color-accent)]">
+                  <Loader2 size={15} class="animate-spin" />
+                </div>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Extension Warning Banner -->
+          {#if extensionNotice}
+            <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-2.5 text-xs text-amber-600 dark:text-amber-400 flex items-center justify-between gap-2 animate-in fade-in">
+              <div class="flex items-center gap-2 min-w-0">
+                <ShieldAlert size={15} class="shrink-0 text-amber-500" />
+                <span class="truncate">{extensionNotice}</span>
+              </div>
+              <button 
+                type="button"
+                on:click={handleAllowExtension}
+                class="px-2 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 font-bold rounded-lg transition text-[11px] shrink-0 flex items-center gap-1 cursor-pointer"
+              >
+                <Plus size={11} strokeWidth={3} />
+                <span>Allow .{rejectedExtension}</span>
+              </button>
+            </div>
           {/if}
-        </div>
+
+          <!-- Expandable Options (Filename, Save Path & Connections) -->
+          <div>
+            <button 
+              type="button"
+              on:click={toggleExpand}
+              class="flex items-center gap-1 text-xs text-[var(--color-secondary)] hover:text-[var(--color-accent)] font-medium transition cursor-pointer select-none py-0.5"
+            >
+              <ChevronDown size={14} class="transition-transform duration-200 {isExpanded ? 'rotate-180' : ''}" />
+              <span>{isExpanded ? 'Hide options' : 'More options (filename, save path)'}</span>
+              {#if !isExpanded && (filename || probeResult?.filename)}
+                <span class="text-[11px] text-[var(--color-secondary)]/70 font-mono truncate max-w-[200px] ml-1">
+                  ({filename || probeResult?.filename})
+                </span>
+              {/if}
+            </button>
+
+            {#if isExpanded}
+              <div class="mt-2.5 space-y-3 pt-2.5 border-t border-[var(--color-border)]/50 animate-in fade-in duration-150">
+                <!-- Target Filename -->
+                <div>
+                  <label for="download-filename" class="block text-xs font-semibold text-[var(--color-text)] mb-1">Save As Filename</label>
+                  <input 
+                    id="download-filename"
+                    type="text" 
+                    bind:value={filename}
+                    placeholder={probeResult?.filename || "auto-detected-filename.bin"}
+                    class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] placeholder-[var(--color-secondary)]/60 focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 transition"
+                  />
+                </div>
+
+                <!-- Save Directory -->
+                <div>
+                  <label for="download-dir" class="block text-xs font-semibold text-[var(--color-text)] mb-1">Save Path</label>
+                  <div class="flex gap-2">
+                    <input 
+                      id="download-dir"
+                      type="text" 
+                      bind:value={saveDir}
+                      placeholder="/Downloads"
+                      class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] font-mono focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 transition"
+                    />
+                    <button 
+                      type="button"
+                      on:click={handleBrowse}
+                      class="px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] text-xs font-medium rounded-xl border border-[var(--color-border)] shadow-2xs transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+                    >
+                      <Folder size={14} class="text-[var(--color-secondary)]" />
+                      Browse
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Concurrent Chunks / Connections -->
+                <div>
+                  <div class="flex items-center justify-between mb-1">
+                    <label for="download-connections" class="text-xs font-semibold text-[var(--color-text)] flex items-center gap-1">
+                      <Zap size={13} class="text-[var(--color-accent)]" />
+                      Parallel Connections
+                    </label>
+                    <span class="text-xs font-bold text-[var(--color-accent)]">{connections} threads</span>
+                  </div>
+                  <input 
+                    id="download-connections"
+                    type="range" 
+                    min="1" 
+                    max="16" 
+                    step="1" 
+                    bind:value={connections}
+                    disabled={probeResult && !probeResult.resumable}
+                    class="w-full accent-[var(--color-accent)] bg-[var(--color-border)] h-1.5 rounded-lg cursor-pointer disabled:opacity-40"
+                  />
+                </div>
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         <!-- Error Banner (Error retention) -->
         {#if probeError}
@@ -524,7 +975,7 @@
             </button>
             <button 
               type="submit" 
-              disabled={isSubmitting || !url.trim()}
+              disabled={isSubmitting || (isBatchMode ? selectedCount === 0 : !url.trim())}
               class="px-5 py-2 text-xs font-bold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-xl shadow-sm hover:shadow transition flex items-center gap-2 disabled:opacity-50 cursor-pointer"
             >
               {#if isSubmitting}
@@ -532,7 +983,7 @@
                 Starting...
               {:else}
                 <Download size={14} strokeWidth={2.5} />
-                Download
+                {isBatchMode ? `Download (${selectedCount})` : 'Download'}
               {/if}
             </button>
           </div>

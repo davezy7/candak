@@ -374,3 +374,119 @@ func TestBackgroundFlusherBatchOffsets(t *testing.T) {
 		t.Errorf("download progress not flushed properly: %+v", updatedDL)
 	}
 }
+
+func TestBatchProbeURLsAndAddBatchDownloads(t *testing.T) {
+	ctx := context.Background()
+	payload := []byte("BATCH_CONTENT_DATA_ABC")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "candak-batch-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "batch_test.db")
+	repo, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to init sqlite repo: %v", err)
+	}
+	defer repo.Close()
+
+	mgr := NewManager(Config{
+		Repository:             repo,
+		Prober:                 prober.NewHTTPProber(prober.WithHTTPClient(server.Client())),
+		ChunkPlanner:           planner.NewDefaultChunkPlanner(),
+		Broadcaster:            events.NewNullBroadcaster(),
+		HTTPClient:             server.Client(),
+		MaxConcurrentDownloads: 2,
+	})
+
+	urls := []string{
+		server.URL + "/batch1.bin",
+		server.URL + "/batch2.bin",
+		server.URL + "/batch3.bin",
+	}
+
+	// 1. Test BatchProbeURLs
+	probeResults, err := mgr.BatchProbeURLs(ctx, urls)
+	if err != nil {
+		t.Fatalf("BatchProbeURLs failed: %v", err)
+	}
+	if len(probeResults) != 3 {
+		t.Fatalf("Expected 3 probe results, got %d", len(probeResults))
+	}
+	for i, pr := range probeResults {
+		if pr.TotalSize != int64(len(payload)) {
+			t.Errorf("Result %d total size mismatch: got %d, want %d", i, pr.TotalSize, len(payload))
+		}
+	}
+
+	// 2. Test AddBatchDownloads with Concurrency Limit = 2
+	reqs := []models.DownloadRequest{
+		{URL: urls[0], Filename: "b1.bin", SaveDir: tempDir, Connections: 1, TotalSize: int64(len(payload)), Resumable: true},
+		{URL: urls[1], Filename: "b2.bin", SaveDir: tempDir, Connections: 1, TotalSize: int64(len(payload)), Resumable: true},
+		{URL: urls[2], Filename: "b3.bin", SaveDir: tempDir, Connections: 1, TotalSize: int64(len(payload)), Resumable: true},
+	}
+
+	ids, err := mgr.AddBatchDownloads(ctx, reqs)
+	if err != nil {
+		t.Fatalf("AddBatchDownloads failed: %v", err)
+	}
+	if len(ids) != 3 {
+		t.Fatalf("Expected 3 created IDs, got %d", len(ids))
+	}
+
+	// Verify all downloads eventually complete via queue dispatching
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		allDone := true
+		for _, id := range ids {
+			dl, err := repo.GetDownload(ctx, id)
+			if err != nil || dl.Status != models.StatusCompleted {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			break
+		}
+	}
+
+	for _, id := range ids {
+		dl, err := repo.GetDownload(ctx, id)
+		if err != nil || dl.Status != models.StatusCompleted {
+			t.Fatalf("Download %s did not complete: %+v", id, dl)
+		}
+		data, err := os.ReadFile(dl.SavePath)
+		if err != nil || !bytes.Equal(data, payload) {
+			t.Errorf("File %s content mismatch", dl.SavePath)
+		}
+	}
+
+	// 3. Test Batch Collision Prevention (Same Filename)
+	collisionReqs := []models.DownloadRequest{
+		{URL: urls[0], Filename: "same.bin", SaveDir: tempDir, Connections: 4, Resumable: false},
+		{URL: urls[1], Filename: "same.bin", SaveDir: tempDir, Connections: 4, Resumable: false},
+	}
+	collisionIDs, err := mgr.AddBatchDownloads(ctx, collisionReqs)
+	if err != nil {
+		t.Fatalf("AddBatchDownloads with duplicate names failed: %v", err)
+	}
+	dl1, _ := repo.GetDownload(ctx, collisionIDs[0])
+	dl2, _ := repo.GetDownload(ctx, collisionIDs[1])
+	if dl1.SavePath == dl2.SavePath {
+		t.Errorf("Expected distinct save paths for collision items, both got %s", dl1.SavePath)
+	}
+	if dl1.TotalChunks != 1 || dl2.TotalChunks != 1 {
+		t.Errorf("Non-resumable downloads should use 1 chunk connection, got %d and %d", dl1.TotalChunks, dl2.TotalChunks)
+	}
+}

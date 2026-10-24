@@ -183,12 +183,28 @@ func (a *App) ProbeURL(rawURL string) (*models.ProbeResult, error) {
 	return a.manager.ProbeURL(a.ctx, rawURL)
 }
 
+// BatchProbeURLs concurrently analyzes multiple URLs using a worker pool.
+func (a *App) BatchProbeURLs(urls []string) ([]models.ProbeResult, error) {
+	if a.manager == nil {
+		return nil, fmt.Errorf("download manager is not ready")
+	}
+	return a.manager.BatchProbeURLs(a.ctx, urls)
+}
+
 // AddDownload initializes, stores, and starts a download task.
 func (a *App) AddDownload(req models.AddDownloadRequest) (*models.Download, error) {
 	if a.manager == nil {
 		return nil, fmt.Errorf("download manager is not ready")
 	}
 	return a.manager.AddDownload(a.ctx, req)
+}
+
+// AddBatchDownloads enqueues multiple downloads and dispatches active tasks according to concurrency limits.
+func (a *App) AddBatchDownloads(requests []models.DownloadRequest) ([]string, error) {
+	if a.manager == nil {
+		return nil, fmt.Errorf("download manager is not ready")
+	}
+	return a.manager.AddBatchDownloads(a.ctx, requests)
 }
 
 // PauseDownload suspends an active download task and persists chunk offsets.

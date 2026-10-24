@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"candak/internal/models"
@@ -108,6 +109,9 @@ func (p *HTTPProber) ProbeWithHeaders(ctx context.Context, rawURL string, header
 			return nil, fmt.Errorf("probe request failed: %w", err)
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			return nil, fmt.Errorf("server returned HTTP %d: %s", resp.StatusCode, resp.Status)
+		}
 	} else {
 		defer resp.Body.Close()
 	}
@@ -182,4 +186,67 @@ func SanitizeFilename(name string) string {
 		return "download.bin"
 	}
 	return clean
+}
+
+// BatchProbe concurrently probes multiple URLs with up to maxWorkers goroutines.
+func BatchProbe(ctx context.Context, p URLProber, urls []string, maxWorkers int) ([]models.ProbeResult, error) {
+	if maxWorkers <= 0 {
+		maxWorkers = 4
+	}
+	results := make([]models.ProbeResult, len(urls))
+	if len(urls) == 0 {
+		return results, nil
+	}
+
+	type job struct {
+		index int
+		url   string
+	}
+
+	jobs := make(chan job, len(urls))
+	for i, u := range urls {
+		jobs <- job{index: i, url: u}
+	}
+	close(jobs)
+
+	numWorkers := maxWorkers
+	if len(urls) < numWorkers {
+		numWorkers = len(urls)
+	}
+
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				raw := strings.TrimSpace(j.url)
+				if raw == "" {
+					results[j.index] = models.ProbeResult{
+						URL:   raw,
+						Error: "empty URL",
+					}
+					continue
+				}
+
+				res, err := p.Probe(ctx, raw)
+				if err != nil {
+					fallback := "download.bin"
+					if parsed, pErr := url.Parse(raw); pErr == nil {
+						fallback = extractFilename("", parsed.Path)
+					}
+					results[j.index] = models.ProbeResult{
+						URL:      raw,
+						Filename: SanitizeFilename(fallback),
+						Error:    err.Error(),
+					}
+				} else {
+					results[j.index] = *res
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	return results, nil
 }

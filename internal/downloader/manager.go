@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +45,8 @@ type Manager struct {
 
 	visible atomic.Bool
 
+	maxConcurrentDownloads int
+
 	mu          sync.RWMutex
 	activeTasks map[string]*activeTask
 
@@ -52,13 +56,14 @@ type Manager struct {
 
 // Config provides configuration parameters for Manager.
 type Config struct {
-	Repository   storage.Repository
-	Prober       prober.URLProber
-	ChunkPlanner planner.ChunkPlanner
-	Broadcaster  events.Broadcaster
-	Notifier     sysutil.Notifier
-	HTTPClient   *http.Client
-	UserAgent    string
+	Repository             storage.Repository
+	Prober                 prober.URLProber
+	ChunkPlanner           planner.ChunkPlanner
+	Broadcaster            events.Broadcaster
+	Notifier               sysutil.Notifier
+	HTTPClient             *http.Client
+	UserAgent              string
+	MaxConcurrentDownloads int
 }
 
 // NewManager constructs a download Manager with injected dependencies.
@@ -105,17 +110,23 @@ func NewManager(cfg Config) *Manager {
 		em = events.NewNullBroadcaster()
 	}
 
+	maxConcurrent := cfg.MaxConcurrentDownloads
+	if maxConcurrent <= 0 {
+		maxConcurrent = 3
+	}
+
 	m := &Manager{
-		repo:        cfg.Repository,
-		prober:      pr,
-		planner:     pl,
-		emitter:     em,
-		httpClient:  client,
-		worker:      NewChunkWorker(client, ua),
-		notifier:    cfg.Notifier,
-		activeTasks: make(map[string]*activeTask),
-		flusherStop: make(chan struct{}),
-		flusherDone: make(chan struct{}),
+		repo:                   cfg.Repository,
+		prober:                 pr,
+		planner:                pl,
+		emitter:                em,
+		httpClient:             client,
+		worker:                 NewChunkWorker(client, ua),
+		notifier:               cfg.Notifier,
+		maxConcurrentDownloads: maxConcurrent,
+		activeTasks:            make(map[string]*activeTask),
+		flusherStop:            make(chan struct{}),
+		flusherDone:            make(chan struct{}),
 	}
 	m.visible.Store(true)
 
@@ -291,25 +302,189 @@ func (m *Manager) AddDownload(ctx context.Context, req models.AddDownloadRequest
 	}
 	_ = m.repo.RecordURLHistory(ctx, req.URL, filename)
 
-	// Launch download worker goroutine
-	go m.startTask(dl, chunks)
+	m.mu.Lock()
+	if len(m.activeTasks) < m.maxConcurrentDownloads {
+		m.mu.Unlock()
+		go m.startTask(dl, chunks)
+	} else {
+		m.mu.Unlock()
+		m.emitStatusChange(dl)
+	}
 
 	return dl, nil
 }
 
-func ensureUniqueFilePath(path string) string {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+// BatchProbeURLs concurrently inspects multiple target URLs via worker pool.
+func (m *Manager) BatchProbeURLs(ctx context.Context, urls []string) ([]models.ProbeResult, error) {
+	return prober.BatchProbe(ctx, m.prober, urls, 4)
+}
+
+// AddBatchDownloads enqueues multiple downloads and dispatches active tasks up to the concurrency limit.
+func (m *Manager) AddBatchDownloads(ctx context.Context, requests []models.DownloadRequest) ([]string, error) {
+	if len(requests) == 0 {
+		return []string{}, nil
+	}
+
+	var createdIDs []string
+	home, _ := os.UserHomeDir()
+	defaultSaveDir := filepath.Join(home, "Downloads")
+	reservedPaths := make(map[string]bool)
+
+	for _, req := range requests {
+		trimmedURL := strings.TrimSpace(req.URL)
+		if trimmedURL == "" {
+			continue
+		}
+
+		saveDir := req.SaveDir
+		if saveDir == "" {
+			saveDir = defaultSaveDir
+		}
+
+		filename := req.Filename
+		if filename == "" {
+			if parsed, err := url.Parse(trimmedURL); err == nil {
+				filename = filepath.Base(parsed.Path)
+			}
+			if filename == "" || filename == "." || filename == "/" {
+				filename = "download.bin"
+			}
+		}
+		filename = prober.SanitizeFilename(filename)
+		savePath := ensureUniqueFilePath(filepath.Join(saveDir, filename), reservedPaths)
+		filename = filepath.Base(savePath)
+
+		conns := req.Connections
+		if conns <= 0 {
+			conns = 4
+		}
+		if !req.Resumable {
+			conns = 1
+		}
+
+		dlID := generateID()
+		chunks := m.planner.Plan(dlID, req.TotalSize, req.Resumable, conns)
+
+		dl := &models.Download{
+			ID:             dlID,
+			URL:            trimmedURL,
+			Filename:       filename,
+			SavePath:       savePath,
+			TotalSize:      req.TotalSize,
+			DownloadedSize: 0,
+			Status:         models.StatusQueued,
+			Resumable:      req.Resumable,
+			TotalChunks:    len(chunks),
+			Speed:          0,
+			ETA:            0,
+			ErrorMessage:   "",
+			Headers:        req.Headers,
+			Chunks:         chunks,
+		}
+
+		if err := m.repo.InsertDownload(ctx, dl); err != nil {
+			continue
+		}
+		if err := m.repo.SaveChunks(ctx, chunks); err != nil {
+			continue
+		}
+		_ = m.repo.RecordURLHistory(ctx, trimmedURL, filename)
+
+		// Emit status change immediately for real-time dashboard rendering
+		m.emitStatusChange(dl)
+		createdIDs = append(createdIDs, dlID)
+	}
+
+	// Dispatch active tasks according to the queue limit
+	m.dispatchNextQueued()
+
+	return createdIDs, nil
+}
+
+func (m *Manager) dispatchNextQueued() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	activeCount := len(m.activeTasks)
+	available := m.maxConcurrentDownloads - activeCount
+	if available <= 0 {
+		return
+	}
+
+	downloads, err := m.repo.GetAllDownloads(context.Background())
+	if err != nil {
+		return
+	}
+
+	var queued []*models.Download
+	for _, d := range downloads {
+		if d.Status == models.StatusQueued {
+			if _, active := m.activeTasks[d.ID]; !active {
+				queued = append(queued, d)
+			}
+		}
+	}
+
+	sort.Slice(queued, func(i, j int) bool {
+		return queued[i].CreatedAt < queued[j].CreatedAt
+	})
+
+	toStart := available
+	if len(queued) < toStart {
+		toStart = len(queued)
+	}
+
+	for i := 0; i < toStart; i++ {
+		dl := queued[i]
+		chunks, err := m.repo.GetChunks(context.Background(), dl.ID)
+		if err != nil || len(chunks) == 0 {
+			continue
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		task := &activeTask{
+			ctx:      ctx,
+			cancel:   cancel,
+			download: dl,
+			chunks:   chunks,
+			doneChan: make(chan struct{}),
+		}
+		m.activeTasks[dl.ID] = task
+		go m.runTask(task)
+	}
+}
+
+func ensureUniqueFilePath(path string, reserved ...map[string]bool) string {
+	isAvailable := func(p string) bool {
+		if len(reserved) > 0 && reserved[0] != nil && reserved[0][p] {
+			return false
+		}
+		_, err := os.Stat(p)
+		return os.IsNotExist(err)
+	}
+
+	if isAvailable(path) {
+		if len(reserved) > 0 && reserved[0] != nil {
+			reserved[0][path] = true
+		}
 		return path
 	}
+
 	dir := filepath.Dir(path)
 	ext := filepath.Ext(path)
 	base := strings.TrimSuffix(filepath.Base(path), ext)
 
 	for i := 1; i < 1000; i++ {
 		candidate := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", base, i, ext))
-		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		if isAvailable(candidate) {
+			if len(reserved) > 0 && reserved[0] != nil {
+				reserved[0][candidate] = true
+			}
 			return candidate
 		}
+	}
+	if len(reserved) > 0 && reserved[0] != nil {
+		reserved[0][path] = true
 	}
 	return path
 }
@@ -332,11 +507,20 @@ func (m *Manager) startTask(dl *models.Download, chunks []*models.Chunk) {
 	m.activeTasks[dl.ID] = task
 	m.mu.Unlock()
 
+	m.runTask(task)
+}
+
+func (m *Manager) runTask(task *activeTask) {
+	dl := task.download
+	chunks := task.chunks
+	ctx := task.ctx
+
 	defer func() {
 		m.mu.Lock()
 		delete(m.activeTasks, dl.ID)
 		m.mu.Unlock()
 		close(task.doneChan)
+		go m.dispatchNextQueued()
 	}()
 
 	// Ensure destination file
