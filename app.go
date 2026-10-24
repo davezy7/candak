@@ -18,6 +18,7 @@ import (
 	"candak/internal/storage"
 	"candak/internal/storage/sqlite"
 	"candak/internal/sysutil"
+	"candak/internal/tray"
 	"sync"
 	"time"
 
@@ -37,6 +38,7 @@ type App struct {
 	notifier         sysutil.Notifier
 	loopbackServer   *server.LoopbackServer
 	clipboardWatcher *clipboard.Watcher
+	tray             tray.Tray
 	mu               sync.Mutex
 	isPromptOnly     bool
 }
@@ -44,11 +46,27 @@ type App struct {
 // NewApp constructs a new App application struct.
 func NewApp() *App {
 	broadcaster := events.NewWailsBroadcaster()
-	return &App{
+	app := &App{
 		broadcaster: broadcaster,
 		opener:      sysutil.NewOSOpener(),
 		notifier:    sysutil.NewOSNotifier(),
 	}
+	app.tray = tray.NewTray(tray.Callbacks{
+		OnOpen: func() {
+			app.OpenMainWindow()
+		},
+		OnPauseAll: func() {
+			if app.manager != nil && app.ctx != nil {
+				app.manager.PauseAll(app.ctx)
+			}
+		},
+		OnQuit: func() {
+			if app.ctx != nil {
+				wailsRuntime.Quit(app.ctx)
+			}
+		},
+	})
+	return app
 }
 
 // startup is called by Wails when the desktop application launches.
@@ -113,10 +131,20 @@ func (a *App) startup(ctx context.Context) {
 		},
 		Interval: 1 * time.Second,
 	})
+
+	// Initialize System Tray
+	if a.tray != nil {
+		if err := a.tray.Start(); err != nil {
+			wailsRuntime.LogWarningf(ctx, "Failed to initialize system tray: %v", err)
+		}
+	}
 }
 
 // shutdown is called by Wails when the desktop application terminates.
 func (a *App) shutdown(ctx context.Context) {
+	if a.tray != nil {
+		a.tray.Stop()
+	}
 	if a.manager != nil {
 		a.manager.PauseAll(ctx)
 	}

@@ -590,7 +590,7 @@
 
         <!-- Section: About -->
         <div class="pt-1 text-center text-xs text-[var(--color-secondary)]">
-          <p class="font-bold text-[var(--color-text)]">Candak Download Manager v0.1.0</p>
+          <p class="font-bold text-[var(--color-text)]">Candak Download Manager v0.1.1</p>
           <p class="mt-0.5 text-[11px]">Fast, multi-threaded desktop download manager</p>
         </div>
       </div>

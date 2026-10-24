@@ -23,10 +23,9 @@ func TestFormatBytes(t *testing.T) {
 	}
 }
 
-func TestEncodeUTF16LEBase64(t *testing.T) {
-	input := "Write-Host 'hello'"
-	encoded := encodeUTF16LEBase64(input)
-	if encoded == "" {
-		t.Fatalf("expected non-empty base64 string")
+func TestOSNotifierInstance(t *testing.T) {
+	n := NewOSNotifier()
+	if n == nil {
+		t.Fatalf("expected non-nil OSNotifier")
 	}
 }
