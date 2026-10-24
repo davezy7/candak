@@ -36,11 +36,13 @@ type App struct {
 	broadcaster      *events.WailsBroadcaster
 	opener           sysutil.SystemOpener
 	notifier         sysutil.Notifier
+	autostart        sysutil.Autostarter
 	loopbackServer   *server.LoopbackServer
 	clipboardWatcher *clipboard.Watcher
 	tray             tray.Tray
 	mu               sync.Mutex
 	isPromptOnly     bool
+	isMinimized      bool
 }
 
 // NewApp constructs a new App application struct.
@@ -50,6 +52,7 @@ func NewApp() *App {
 		broadcaster: broadcaster,
 		opener:      sysutil.NewOSOpener(),
 		notifier:    sysutil.NewOSNotifier(),
+		autostart:   sysutil.NewAutostart(),
 	}
 	app.tray = tray.NewTray(tray.Callbacks{
 		OnOpen: func() {
@@ -137,6 +140,15 @@ func (a *App) startup(ctx context.Context) {
 		if err := a.tray.Start(); err != nil {
 			wailsRuntime.LogWarningf(ctx, "Failed to initialize system tray: %v", err)
 		}
+	}
+
+	// On boot in Tray Daemon Mode (--minimized), automatically resume uncompleted downloads in the background
+	if a.isMinimized {
+		go func() {
+			if a.manager != nil {
+				_ = a.manager.ResumeUnfinishedDownloads(a.ctx)
+			}
+		}()
 	}
 }
 
@@ -454,4 +466,27 @@ func (a *App) ensureExtensionFiles(targetDir string) error {
 		}
 		return os.WriteFile(destPath, data, 0644)
 	})
+}
+
+// SetMinimized flags whether the application was launched into Tray Daemon Mode.
+func (a *App) SetMinimized(minimized bool) {
+	a.mu.Lock()
+	a.isMinimized = minimized
+	a.mu.Unlock()
+}
+
+// GetStartupSettings queries OS autostart configuration for Candak.
+func (a *App) GetStartupSettings() (models.StartupConfig, error) {
+	if a.autostart == nil {
+		return models.StartupConfig{}, fmt.Errorf("autostart manager is not ready")
+	}
+	return a.autostart.GetStartupSettings()
+}
+
+// SetStartupSettings sets or removes OS autostart registration for Candak.
+func (a *App) SetStartupSettings(cfg models.StartupConfig) error {
+	if a.autostart == nil {
+		return fmt.Errorf("autostart manager is not ready")
+	}
+	return a.autostart.SetStartupSettings(cfg)
 }

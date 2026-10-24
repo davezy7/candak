@@ -109,3 +109,9 @@ type ProgressEvent struct {
 	Status         DownloadStatus `json:"status"`
 	Chunks         []*Chunk       `json:"chunks,omitempty"`
 }
+
+// StartupConfig represents the autostart and launch minimized preferences.
+type StartupConfig struct {
+	Enabled   bool `json:"enabled"`
+	Minimized bool `json:"minimized"`
+}

@@ -1,5 +1,19 @@
 export namespace models {
 	
+	export class StartupConfig {
+	    enabled: boolean;
+	    minimized: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new StartupConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.minimized = source["minimized"];
+	    }
+	}
 	export class AddDownloadRequest {
 	    url: string;
 	    filename: string;

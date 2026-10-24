@@ -42,6 +42,10 @@ export function GetLoopbackStatus() {
   return window['go']['main']['App']['GetLoopbackStatus']();
 }
 
+export function GetStartupSettings() {
+  return window['go']['main']['App']['GetStartupSettings']();
+}
+
 export function GetURLHistory() {
   return window['go']['main']['App']['GetURLHistory']();
 }
@@ -92,6 +96,10 @@ export function SelectDirectory() {
 
 export function SetClipboardWatching(arg1) {
   return window['go']['main']['App']['SetClipboardWatching'](arg1);
+}
+
+export function SetStartupSettings(arg1) {
+  return window['go']['main']['App']['SetStartupSettings'](arg1);
 }
 
 export function ShowInFolder(arg1) {

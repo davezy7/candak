@@ -22,6 +22,8 @@ export function GetExtensionDir():Promise<string>;
 
 export function GetLoopbackStatus():Promise<Record<string, any>>;
 
+export function GetStartupSettings():Promise<models.StartupConfig>;
+
 export function GetURLHistory():Promise<Array<models.URLHistoryItem>>;
 
 export function HandleGrabRequest(arg1:models.GrabRequest):Promise<void>;
@@ -47,6 +49,8 @@ export function ResumeDownload(arg1:string):Promise<void>;
 export function SelectDirectory():Promise<string>;
 
 export function SetClipboardWatching(arg1:boolean):Promise<boolean>;
+
+export function SetStartupSettings(arg1:models.StartupConfig):Promise<void>;
 
 export function ShowInFolder(arg1:string):Promise<void>;
 

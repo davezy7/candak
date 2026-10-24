@@ -364,6 +364,9 @@ func (m *Manager) finishWithError(dl *models.Download, errMsg string) {
 	dl.ETA = 0
 	_ = m.repo.UpdateDownloadStatus(context.Background(), dl.ID, models.StatusError, errMsg)
 	m.emitStatusChange(dl)
+	if m.notifier != nil {
+		_ = m.notifier.Notify("Candak Download Failed", fmt.Sprintf("Failed: %s - %s", dl.Filename, errMsg))
+	}
 }
 
 // PauseDownload suspends an active download and preserves offset progress.
@@ -418,6 +421,21 @@ func (m *Manager) ResumeDownload(ctx context.Context, id string) error {
 	}
 
 	go m.startTask(dl, chunks)
+	return nil
+}
+
+// ResumeUnfinishedDownloads finds tasks in downloading, queued, or pending states from previous session and resumes them.
+func (m *Manager) ResumeUnfinishedDownloads(ctx context.Context) error {
+	downloads, err := m.repo.GetAllDownloads(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, dl := range downloads {
+		if dl.Status == models.StatusDownloading || dl.Status == models.StatusQueued || dl.Status == "pending" {
+			_ = m.ResumeDownload(ctx, dl.ID)
+		}
+	}
 	return nil
 }
 

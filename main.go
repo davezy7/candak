@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"os"
 	"runtime"
 
 	"github.com/wailsapp/wails/v2"
@@ -17,8 +18,18 @@ import (
 var assets embed.FS
 
 func main() {
+	// Parse CLI argument flags
+	isMinimized := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--minimized" || arg == "-minimized" {
+			isMinimized = true
+			break
+		}
+	}
+
 	// Create an instance of the app structure
 	app := NewApp()
+	app.SetMinimized(isMinimized)
 
 	// Application menu - only configured on macOS for system menu bar.
 	// On Windows, setting Menu renders an unwanted Win32 white menu bar below the title bar.
@@ -37,6 +48,7 @@ func main() {
 		Height:            720,
 		MinWidth:          800,
 		MinHeight:         500,
+		StartHidden:       isMinimized,
 		HideWindowOnClose: true,
 		Menu:              appMenu,
 		AssetServer: &assetserver.Options{
