@@ -8,6 +8,12 @@ export function AddDownload(arg1:models.AddDownloadRequest):Promise<models.Downl
 
 export function BatchProbeURLs(arg1:Array<string>):Promise<Array<models.ProbeResult>>;
 
+export function BatchPauseDownloads(arg1:Array<string>):Promise<void>;
+
+export function BatchResumeDownloads(arg1:Array<string>):Promise<void>;
+
+export function BatchDeleteDownloads(arg1:Array<string>,arg2:boolean):Promise<void>;
+
 export function CancelDownload(arg1:string,arg2:boolean):Promise<void>;
 
 export function ClearURLHistory():Promise<void>;
