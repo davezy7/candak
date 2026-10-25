@@ -10,20 +10,20 @@ export function AddDownload(arg1) {
   return window['go']['main']['App']['AddDownload'](arg1);
 }
 
-export function BatchProbeURLs(arg1) {
-  return window['go']['main']['App']['BatchProbeURLs'](arg1);
+export function BatchDeleteDownloads(arg1, arg2) {
+  return window['go']['main']['App']['BatchDeleteDownloads'](arg1, arg2);
 }
 
 export function BatchPauseDownloads(arg1) {
   return window['go']['main']['App']['BatchPauseDownloads'](arg1);
 }
 
-export function BatchResumeDownloads(arg1) {
-  return window['go']['main']['App']['BatchResumeDownloads'](arg1);
+export function BatchProbeURLs(arg1) {
+  return window['go']['main']['App']['BatchProbeURLs'](arg1);
 }
 
-export function BatchDeleteDownloads(arg1, arg2) {
-  return window['go']['main']['App']['BatchDeleteDownloads'](arg1, arg2);
+export function BatchResumeDownloads(arg1) {
+  return window['go']['main']['App']['BatchResumeDownloads'](arg1);
 }
 
 export function CancelDownload(arg1, arg2) {
