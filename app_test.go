@@ -104,4 +104,14 @@ func TestAppBatchMethods(t *testing.T) {
 	if err == nil {
 		t.Errorf("expected error when manager not initialized")
 	}
+
+	if err := app.BatchPauseDownloads([]string{"id1"}); err == nil {
+		t.Errorf("expected error when manager not initialized")
+	}
+	if err := app.BatchResumeDownloads([]string{"id1"}); err == nil {
+		t.Errorf("expected error when manager not initialized")
+	}
+	if err := app.BatchDeleteDownloads([]string{"id1"}, false); err == nil {
+		t.Errorf("expected error when manager not initialized")
+	}
 }

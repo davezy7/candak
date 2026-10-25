@@ -1,12 +1,23 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { GetDownloads, OpenFolder, GetDefaultDownloadDir, SetClipboardWatching, SetWindowVisible } from '@wails/go/main/App.js';
+  import { 
+    GetDownloads, 
+    OpenFolder, 
+    GetDefaultDownloadDir, 
+    SetClipboardWatching, 
+    SetWindowVisible,
+    BatchPauseDownloads,
+    BatchResumeDownloads,
+    BatchDeleteDownloads
+  } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
   import { formatBytes, formatSpeed } from './lib/formatters.js';
   import DownloadItem from './lib/DownloadItem.svelte';
   import AddDownloadModal from './lib/AddDownloadModal.svelte';
   import HistoryModal from './lib/HistoryModal.svelte';
   import SettingsModal from './lib/SettingsModal.svelte';
+  import MultiSelectToolbar from './lib/MultiSelectToolbar.svelte';
+  import BulkDeleteModal from './lib/BulkDeleteModal.svelte';
   import { 
     Download, 
     Plus, 
@@ -21,11 +32,15 @@
   let isAddModalOpen = false;
   let isHistoryModalOpen = false;
   let isSettingsModalOpen = false;
+  let isBulkDeleteModalOpen = false;
   let initialUrlForModal = '';
   let grabbedData = null;
   let isStandalonePrompt = false;
   let activeTab = 'downloads'; // 'downloads' | 'files'
   let defaultDownloadDir = '';
+  let selectedIds = new Set();
+  let lastSelectedId = null;
+  let isModifierKeyPressed = false;
   let unlistenProgress = null;
   let unlistenStatus = null;
   let unlistenDeleted = null;
@@ -83,6 +98,11 @@
 
     unlistenDeleted = EventsOn('download:deleted', (id) => {
       downloads = downloads.filter(d => d.id !== id);
+      if (selectedIds.has(id)) {
+        const next = new Set(selectedIds);
+        next.delete(id);
+        selectedIds = next;
+      }
     });
 
     // Listen for downloads grabbed from browser extension or clipboard
@@ -183,7 +203,144 @@
     }
     return true;
   });
+
+  $: isMultiSelectMode = selectedIds.size > 0;
+
+  function clearSelection() {
+    selectedIds = new Set();
+    lastSelectedId = null;
+  }
+
+  function setFilter(newFilter) {
+    if (filter !== newFilter) {
+      filter = newFilter;
+      clearSelection();
+    }
+  }
+
+  function setActiveTab(tab) {
+    if (activeTab !== tab) {
+      activeTab = tab;
+      clearSelection();
+    }
+  }
+
+  function handleToggleSelect(downloadId, event) {
+    const next = new Set(selectedIds);
+    if (event?.shiftKey && lastSelectedId && filteredDownloads.length > 0) {
+      const idx1 = filteredDownloads.findIndex(d => d.id === lastSelectedId);
+      const idx2 = filteredDownloads.findIndex(d => d.id === downloadId);
+      if (idx1 !== -1 && idx2 !== -1) {
+        const start = Math.min(idx1, idx2);
+        const end = Math.max(idx1, idx2);
+        for (let i = start; i <= end; i++) {
+          next.add(filteredDownloads[i].id);
+        }
+        selectedIds = next;
+        lastSelectedId = downloadId;
+        return;
+      }
+    }
+
+    if (next.has(downloadId)) {
+      next.delete(downloadId);
+      if (next.size === 0) {
+        lastSelectedId = null;
+      }
+    } else {
+      next.add(downloadId);
+      lastSelectedId = downloadId;
+    }
+    selectedIds = next;
+  }
+
+  function handleToggleSelectAll() {
+    if (selectedIds.size >= filteredDownloads.length && filteredDownloads.length > 0) {
+      selectedIds = new Set();
+      lastSelectedId = null;
+    } else {
+      selectedIds = new Set(filteredDownloads.map(d => d.id));
+      if (filteredDownloads.length > 0) {
+        lastSelectedId = filteredDownloads[filteredDownloads.length - 1].id;
+      }
+    }
+  }
+
+  async function handleBatchPause() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      await BatchPauseDownloads(ids);
+    } catch (err) {
+      console.error('Failed to batch pause downloads:', err);
+    } finally {
+      await fetchDownloads();
+    }
+  }
+
+  async function handleBatchResume() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      await BatchResumeDownloads(ids);
+    } catch (err) {
+      console.error('Failed to batch resume downloads:', err);
+    } finally {
+      await fetchDownloads();
+    }
+  }
+
+  async function handleConfirmBatchDelete(deleteFiles) {
+    const ids = Array.from(selectedIds);
+    isBulkDeleteModalOpen = false;
+    if (ids.length === 0) return;
+    try {
+      await BatchDeleteDownloads(ids, deleteFiles);
+      clearSelection();
+    } catch (err) {
+      console.error('Failed to batch delete downloads:', err);
+    } finally {
+      await fetchDownloads();
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Shift' || e.key === 'Meta' || e.key === 'Control') {
+      isModifierKeyPressed = true;
+    }
+
+    if (e.key === 'Escape') {
+      if (isBulkDeleteModalOpen) {
+        isBulkDeleteModalOpen = false;
+        return;
+      }
+      if (selectedIds.size > 0) {
+        selectedIds = new Set();
+        lastSelectedId = null;
+      }
+    }
+
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable);
+      if (!isInput && !isAddModalOpen && !isHistoryModalOpen && !isSettingsModalOpen && !isBulkDeleteModalOpen) {
+        e.preventDefault();
+        if (filteredDownloads.length > 0) {
+          selectedIds = new Set(filteredDownloads.map(d => d.id));
+          lastSelectedId = filteredDownloads[filteredDownloads.length - 1].id;
+        }
+      }
+    }
+  }
+
+  function handleKeyUp(e) {
+    if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
+      isModifierKeyPressed = false;
+    }
+  }
 </script>
+
+<svelte:window on:keydown={handleKeyDown} on:keyup={handleKeyUp} />
 
 {#if isStandalonePrompt}
   <!-- Standalone Mini Prompt Window (Decoupled from Dashboard) -->
@@ -232,7 +389,7 @@
       <!-- Filter Pills matching reference screenshot -->
       <div class="flex items-center gap-2 mt-4 overflow-x-auto no-scrollbar" style="--wails-draggable:no-drag">
         <button 
-          on:click={() => filter = 'all'}
+          on:click={() => setFilter('all')}
           class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
             filter === 'all' 
               ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
@@ -243,7 +400,7 @@
         </button>
 
         <button 
-          on:click={() => filter = 'downloading'}
+          on:click={() => setFilter('downloading')}
           class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
             filter === 'downloading' 
               ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
@@ -254,7 +411,7 @@
         </button>
 
         <button 
-          on:click={() => filter = 'completed'}
+          on:click={() => setFilter('completed')}
           class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
             filter === 'completed' 
               ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
@@ -266,7 +423,7 @@
 
         {#if pausedCount > 0}
           <button 
-            on:click={() => filter = 'paused'}
+            on:click={() => setFilter('paused')}
             class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
               filter === 'paused' 
                 ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
@@ -331,17 +488,37 @@
       </div>
     {:else}
       {#each filteredDownloads as download (download.id)}
-        <DownloadItem {download} onAction={fetchDownloads} />
+        <DownloadItem 
+          {download} 
+          isSelected={selectedIds.has(download.id)}
+          {isMultiSelectMode}
+          {isModifierKeyPressed}
+          onToggleSelect={(e) => handleToggleSelect(download.id, e)}
+          onAction={fetchDownloads} 
+        />
       {/each}
     {/if}
   </main>
+
+  <!-- Floating Multi-Select Toolbar -->
+  {#if isMultiSelectMode}
+    <MultiSelectToolbar 
+      selectedCount={selectedIds.size}
+      totalVisibleCount={filteredDownloads.length}
+      onToggleSelectAll={handleToggleSelectAll}
+      onPauseSelected={handleBatchPause}
+      onResumeSelected={handleBatchResume}
+      onDeleteSelected={() => isBulkDeleteModalOpen = true}
+      onClear={() => { selectedIds = new Set(); lastSelectedId = null; }}
+    />
+  {/if}
 
   <!-- Bottom Navigation Bar matching reference screenshot -->
   <footer class="fixed bottom-4 left-0 right-0 px-8 flex justify-center pointer-events-none">
     <nav class="bg-[var(--color-nav-bg)] border border-[var(--color-border)] rounded-3xl shadow-lg shadow-black/5 py-2.5 px-10 flex items-center gap-12 pointer-events-auto">
       <!-- 1. Downloads Tab -->
       <button 
-        on:click={() => activeTab = 'downloads'}
+        on:click={() => setActiveTab('downloads')}
         class="flex flex-col items-center gap-1 transition-colors {
           activeTab === 'downloads' ? 'text-[var(--color-accent)]' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'
         }"
@@ -352,7 +529,7 @@
 
       <!-- 2. Files Tab -->
       <button 
-        on:click={() => activeTab = 'files'}
+        on:click={() => setActiveTab('files')}
         class="flex flex-col items-center gap-1 transition-colors {
           activeTab === 'files' ? 'text-[var(--color-accent)]' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'
         }"
@@ -396,6 +573,13 @@
   <SettingsModal 
     isOpen={isSettingsModalOpen} 
     onClose={() => isSettingsModalOpen = false} 
+  />
+
+  <BulkDeleteModal
+    isOpen={isBulkDeleteModalOpen}
+    count={selectedIds.size}
+    onConfirm={handleConfirmBatchDelete}
+    onCancel={() => isBulkDeleteModalOpen = false}
   />
 </div>
 {/if}

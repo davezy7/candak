@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -229,6 +230,50 @@ func (a *App) CancelDownload(id string, deleteFile bool) error {
 		return fmt.Errorf("download manager is not ready")
 	}
 	return a.manager.CancelDownload(a.ctx, id, deleteFile)
+}
+
+// BatchPauseDownloads suspends multiple download tasks.
+func (a *App) BatchPauseDownloads(ids []string) error {
+	if a.manager == nil {
+		return fmt.Errorf("download manager is not ready")
+	}
+	var lastErr error
+	for _, id := range ids {
+		if err := a.manager.PauseDownload(a.ctx, id); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
+// BatchResumeDownloads restarts multiple paused downloads.
+func (a *App) BatchResumeDownloads(ids []string) error {
+	if a.manager == nil {
+		return fmt.Errorf("download manager is not ready")
+	}
+	var lastErr error
+	for _, id := range ids {
+		if err := a.manager.ResumeDownload(a.ctx, id); err != nil {
+			if !errors.Is(err, models.ErrAlreadyRunning) && !errors.Is(err, models.ErrAlreadyCompleted) {
+				lastErr = err
+			}
+		}
+	}
+	return lastErr
+}
+
+// BatchDeleteDownloads cancels multiple downloads and optionally removes downloaded files.
+func (a *App) BatchDeleteDownloads(ids []string, deleteFiles bool) error {
+	if a.manager == nil {
+		return fmt.Errorf("download manager is not ready")
+	}
+	var lastErr error
+	for _, id := range ids {
+		if err := a.manager.CancelDownload(a.ctx, id, deleteFiles); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
 }
 
 // GetDownloads retrieves all downloads from SQLite.
