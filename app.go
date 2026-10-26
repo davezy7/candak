@@ -20,6 +20,7 @@ import (
 	"candak/internal/storage/sqlite"
 	"candak/internal/sysutil"
 	"candak/internal/tray"
+	"candak/internal/updater"
 	"sync"
 	"time"
 
@@ -571,4 +572,26 @@ func (a *App) SetStartupSettings(cfg models.StartupConfig) error {
 		return fmt.Errorf("autostart manager is not ready")
 	}
 	return a.autostart.SetStartupSettings(cfg)
+}
+
+// GetAppVersion returns the compiled application version.
+func (a *App) GetAppVersion() string {
+	return updater.Version
+}
+
+// CheckForUpdates queries the latest GitHub release and reports whether a newer version exists.
+func (a *App) CheckForUpdates() (*updater.CheckResult, error) {
+	return updater.Check(a.ctx)
+}
+
+// DownloadUpdate enqueues a release installer asset into Candak's own download manager.
+func (a *App) DownloadUpdate(assetURL, filename string) (*models.Download, error) {
+	if a.manager == nil {
+		return nil, fmt.Errorf("download manager is not ready")
+	}
+	return a.manager.AddDownload(a.ctx, models.AddDownloadRequest{
+		URL:      assetURL,
+		Filename: filename,
+		SaveDir:  a.GetDefaultDownloadDir(),
+	})
 }

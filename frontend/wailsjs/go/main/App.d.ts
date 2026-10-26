@@ -16,11 +16,17 @@ export function BatchResumeDownloads(arg1:Array<string>):Promise<void>;
 
 export function CancelDownload(arg1:string,arg2:boolean):Promise<void>;
 
+export function CheckForUpdates():Promise<Record<string, any>>;
+
 export function ClearURLHistory():Promise<void>;
 
 export function ClosePromptWindow(arg1:boolean,arg2:string,arg3:number):Promise<void>;
 
 export function DeleteURLHistoryItem(arg1:number):Promise<void>;
+
+export function DownloadUpdate(arg1:string,arg2:string):Promise<models.Download>;
+
+export function GetAppVersion():Promise<string>;
 
 export function GetChunks(arg1:string):Promise<Array<models.Chunk>>;
 
