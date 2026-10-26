@@ -9,7 +9,6 @@
     BatchDeleteDownloads
   } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
-  import { formatBytes, formatSpeed } from './lib/formatters.js';
   import DownloadItem from './lib/DownloadItem.svelte';
   import AddDownloadModal from './lib/AddDownloadModal.svelte';
   import HistoryModal from './lib/HistoryModal.svelte';
@@ -408,7 +407,7 @@
   </header>
 
   <!-- Content List Area -->
-  <main class="flex-1 overflow-y-auto px-8 pb-24 space-y-3.5">
+  <main class="flex-1 overflow-y-auto px-8 pb-24 flex flex-col gap-2">
     {#if filteredDownloads.length === 0}
       <div class="h-full flex flex-col items-center justify-center py-20 text-center">
         <div class="w-16 h-16 rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs flex items-center justify-center text-[var(--color-secondary)] mb-3">
