@@ -6,7 +6,14 @@
     OpenFile, 
     ShowInFolder 
   } from '@wails/go/main/App.js';
-  import { formatBytes, formatSpeed, formatETA, getFileCategory } from './formatters.js';
+  import { 
+    formatBytes, 
+    formatSpeed, 
+    formatETA, 
+    getFileCategory,
+    getExtensionBadge,
+    getFolderPath
+  } from './formatters.js';
   import ChunkVisualizer from './ChunkVisualizer.svelte';
   import ConfirmModal from './ConfirmModal.svelte';
   import { 
@@ -22,7 +29,6 @@
     FileImage, 
     ChevronDown, 
     ChevronUp, 
-    ExternalLink, 
     Check
   } from 'lucide-svelte';
 
@@ -43,20 +49,7 @@
     ? Math.min(100, Math.max(0, (download.downloadedSize / download.totalSize) * 100))
     : 0;
 
-  function getExtensionBadge(filename) {
-    if (!filename || !filename.includes('.')) return 'FILE';
-    const ext = filename.split('.').pop()?.trim().toUpperCase() || 'FILE';
-    return ext.length > 5 ? ext.slice(0, 4) : ext;
-  }
 
-  function getFolderPath(savePath) {
-    if (!savePath) return '';
-    const separator = savePath.includes('\\') ? '\\' : '/';
-    if (!savePath.includes(separator)) return savePath;
-    const parts = savePath.split(separator);
-    parts.pop();
-    return parts.join(separator) || separator;
-  }
 
   function handleCardClick(e) {
     if (isMultiSelectMode) {
@@ -218,7 +211,7 @@
             </button>
           </h4>
           <span class="px-1.5 py-0.5 text-[10px] font-bold tracking-wider rounded bg-sky-500/10 text-sky-500 dark:bg-sky-400/10 dark:text-sky-400 shrink-0">
-            {getExtensionBadge(download.filename)}
+            {getExtensionBadge(download.filename, download.savePath)}
           </span>
         </div>
         
@@ -239,22 +232,12 @@
       {#if !isMultiSelectMode}
         <button 
           type="button"
-          on:click|stopPropagation={handleOpenFile}
-          class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] rounded-xl transition cursor-pointer"
-          title="Open File"
-          aria-label="Open File"
-        >
-          <ExternalLink size={16} />
-        </button>
-
-        <button 
-          type="button"
           on:click|stopPropagation={handleShowFolder}
           class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] rounded-xl transition cursor-pointer"
           title="Show in Folder"
           aria-label="Show in Folder"
         >
-          <Folder size={16} />
+          <Folder size={15} />
         </button>
       {/if}
 
@@ -265,7 +248,7 @@
         title="Delete Download"
         aria-label="Delete Download"
       >
-        <Trash2 size={16} />
+        <Trash2 size={15} />
       </button>
     </div>
   </div>
