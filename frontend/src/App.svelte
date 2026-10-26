@@ -1,18 +1,20 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
-  import { 
+  import {
     GetDownloads, 
     SetClipboardWatching, 
     SetWindowVisible,
     BatchPauseDownloads,
     BatchResumeDownloads,
-    BatchDeleteDownloads
+    BatchDeleteDownloads,
+    CheckForUpdates
   } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
   import DownloadItem from './lib/DownloadItem.svelte';
   import AddDownloadModal from './lib/AddDownloadModal.svelte';
   import HistoryModal from './lib/HistoryModal.svelte';
   import SettingsModal from './lib/SettingsModal.svelte';
+  import UpdateModal from './lib/UpdateModal.svelte';
   import MultiSelectToolbar from './lib/MultiSelectToolbar.svelte';
   import BulkDeleteModal from './lib/BulkDeleteModal.svelte';
   import { 
@@ -29,6 +31,9 @@
   let isHistoryModalOpen = false;
   let isSettingsModalOpen = false;
   let isBulkDeleteModalOpen = false;
+  let isUpdateModalOpen = false;
+  let updateCheck = null;
+  let updateError = '';
   let initialUrlForModal = '';
   let grabbedData = null;
   let isStandalonePrompt = false;
@@ -51,6 +56,9 @@
         console.error('Failed to initialize clipboard watcher:', err);
       }
     }
+
+    // Background update check, throttled to once per 24 hours via localStorage
+    checkForUpdates(false);
 
     await fetchDownloads();
 
@@ -155,6 +163,24 @@
       console.error('Failed to load downloads:', err);
     }
   }
+
+  const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+  async function checkForUpdates(force) {
+    const last = parseInt(localStorage.getItem('candak_last_update_check') || '0', 10);
+    if (!force && Date.now() - last < UPDATE_CHECK_INTERVAL_MS) return;
+    try {
+      const result = await CheckForUpdates();
+      localStorage.setItem('candak_last_update_check', String(Date.now()));
+      updateCheck = result;
+      updateError = '';
+    } catch (err) {
+      console.error('Update check failed:', err);
+      updateError = 'Check failed (network error)';
+    }
+  }
+
+  $: updateAvailable = updateCheck?.updateAvailable === true;
 
   function handleSelectHistoryUrl(url) {
     initialUrlForModal = url;
@@ -481,10 +507,13 @@
       <!-- 3. Settings Button -->
       <button 
         on:click={() => isSettingsModalOpen = true}
-        class="flex flex-col items-center gap-1 transition-colors text-[var(--color-secondary)] hover:text-[var(--color-text)]"
+        class="relative flex flex-col items-center gap-1 transition-colors text-[var(--color-secondary)] hover:text-[var(--color-text)]"
         title="Open Settings"
         aria-label="Open Settings"
       >
+        {#if updateAvailable}
+          <span class="absolute -top-1.5 -right-2.5 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-[var(--color-bg)]" title="Update available"></span>
+        {/if}
         <Settings size={19} strokeWidth={2} />
         <span class="text-[11px] font-semibold">Settings</span>
       </button>
@@ -513,6 +542,19 @@
   <SettingsModal 
     isOpen={isSettingsModalOpen} 
     onClose={() => isSettingsModalOpen = false} 
+    {updateCheck}
+    {updateError}
+    onCheckForUpdates={() => checkForUpdates(true)}
+    onViewUpdate={() => {
+      isSettingsModalOpen = false;
+      isUpdateModalOpen = true;
+    }}
+  />
+
+  <UpdateModal
+    isOpen={isUpdateModalOpen}
+    check={updateCheck}
+    onClose={() => isUpdateModalOpen = false}
   />
 
   <BulkDeleteModal

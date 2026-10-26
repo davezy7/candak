@@ -30,6 +30,10 @@ export function CancelDownload(arg1, arg2) {
   return window['go']['main']['App']['CancelDownload'](arg1, arg2);
 }
 
+export function CheckForUpdates() {
+  return window['go']['main']['App']['CheckForUpdates']();
+}
+
 export function ClearURLHistory() {
   return window['go']['main']['App']['ClearURLHistory']();
 }
@@ -40,6 +44,14 @@ export function ClosePromptWindow(arg1, arg2, arg3) {
 
 export function DeleteURLHistoryItem(arg1) {
   return window['go']['main']['App']['DeleteURLHistoryItem'](arg1);
+}
+
+export function DownloadUpdate(arg1, arg2) {
+  return window['go']['main']['App']['DownloadUpdate'](arg1, arg2);
+}
+
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
 }
 
 export function GetChunks(arg1) {

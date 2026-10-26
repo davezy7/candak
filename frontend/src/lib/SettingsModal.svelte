@@ -10,7 +10,8 @@
     SetClipboardWatching,
     IsClipboardWatching,
     GetStartupSettings,
-    SetStartupSettings
+    SetStartupSettings,
+    GetAppVersion
   } from '@wails/go/main/App.js';
   import { 
     X, 
@@ -29,12 +30,18 @@
     Clipboard,
     ExternalLink,
     ShieldCheck,
-    Power
+    Power,
+    RefreshCw,
+    Rocket
   } from 'lucide-svelte';
-  import { DEFAULT_ACCEPTED_EXTENSIONS } from './formatters.js';
+  import { DEFAULT_ACCEPTED_EXTENSIONS, formatDate } from './formatters.js';
 
   export let isOpen = false;
   export let onClose = () => {};
+  export let updateCheck = null;
+  export let updateError = '';
+  export let onCheckForUpdates = () => {};
+  export let onViewUpdate = () => {};
 
   let currentTheme = 'system';
   let downloadDir = '';
@@ -57,6 +64,11 @@
   // System Startup State
   let startupEnabled = false;
   let startupMinimized = false;
+
+  // Update State
+  let appVersion = '';
+  let checkingUpdate = false;
+  let lastCheckedAt = '';
 
   theme.subscribe((val) => {
     currentTheme = val;
@@ -104,6 +116,16 @@
       } catch (e) {
         console.error('Failed to load startup settings:', e);
       }
+
+      // Load compiled app version
+      try {
+        appVersion = await GetAppVersion();
+      } catch (e) {
+        console.error('Failed to load app version:', e);
+      }
+
+      const storedCheck = parseInt(localStorage.getItem('candak_last_update_check') || '0', 10);
+      if (storedCheck > 0) lastCheckedAt = new Date(storedCheck).toISOString();
     } catch (e) {
       console.error(e);
     }
@@ -291,6 +313,28 @@
       onClose();
     }
   }
+
+  async function handleCheckForUpdates() {
+    if (checkingUpdate) return;
+    checkingUpdate = true;
+    try {
+      await onCheckForUpdates();
+      const ts = parseInt(localStorage.getItem('candak_last_update_check') || '0', 10);
+      if (ts > 0) lastCheckedAt = new Date(ts).toISOString();
+    } finally {
+      checkingUpdate = false;
+    }
+  }
+
+  $: updateStatusText = checkingUpdate
+    ? 'Checking for updates...'
+    : updateError
+      ? updateError
+      : updateCheck?.updateAvailable
+        ? `New update available: v${updateCheck.latestVersion}`
+        : updateCheck
+          ? 'Up to date'
+          : 'Not checked yet';
 </script>
 
 {#if isOpen}
@@ -686,9 +730,52 @@
           </div>
         </div>
 
+        <!-- Section: Updates -->
+        <div>
+          <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
+            Updates
+          </h4>
+          <div class="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-4 space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <div class="w-8 h-8 rounded-xl bg-[var(--color-accent-subtle)] text-[var(--color-accent)] flex items-center justify-center shrink-0">
+                  <RefreshCw size={16} class={checkingUpdate ? 'animate-spin' : ''} />
+                </div>
+                <div class="min-w-0">
+                  <span class="text-xs font-semibold text-[var(--color-text)] block">
+                    Current Version: v{appVersion || '...'}
+                  </span>
+                  <span class="text-[11px] text-[var(--color-secondary)] block truncate">
+                    {updateStatusText}{lastCheckedAt ? ` • Last checked ${formatDate(lastCheckedAt)}` : ''}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                on:click={handleCheckForUpdates}
+                disabled={checkingUpdate}
+                class="px-3 py-1.5 text-xs font-semibold bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl shadow-2xs transition disabled:opacity-50 shrink-0 cursor-pointer"
+              >
+                {checkingUpdate ? 'Checking...' : 'Check for Updates'}
+              </button>
+            </div>
+
+            {#if updateCheck?.updateAvailable}
+              <button
+                type="button"
+                on:click={onViewUpdate}
+                class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-[0.98] cursor-pointer"
+              >
+                <Rocket size={14} strokeWidth={2.5} />
+                <span>View Update v{updateCheck.latestVersion}</span>
+              </button>
+            {/if}
+          </div>
+        </div>
+
         <!-- Section: About -->
         <div class="pt-1 text-center text-xs text-[var(--color-secondary)]">
-          <p class="font-bold text-[var(--color-text)]">Candak Download Manager v0.1.1</p>
+          <p class="font-bold text-[var(--color-text)]">Candak Download Manager v{appVersion || '0.1.1'}</p>
           <p class="mt-0.5 text-[11px]">Fast, multi-threaded desktop download manager</p>
         </div>
       </div>
