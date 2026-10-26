@@ -2,8 +2,6 @@
   import { onMount, onDestroy } from 'svelte';
   import { 
     GetDownloads, 
-    OpenFolder, 
-    GetDefaultDownloadDir, 
     SetClipboardWatching, 
     SetWindowVisible,
     BatchPauseDownloads,
@@ -21,10 +19,9 @@
   import { 
     Download, 
     Plus, 
-    Folder, 
     Settings, 
     ArrowDown,
-    ExternalLink
+    History
   } from 'lucide-svelte';
 
   let downloads = [];
@@ -36,8 +33,6 @@
   let initialUrlForModal = '';
   let grabbedData = null;
   let isStandalonePrompt = false;
-  let activeTab = 'downloads'; // 'downloads' | 'files'
-  let defaultDownloadDir = '';
   let selectedIds = new Set();
   let lastSelectedId = null;
   let isModifierKeyPressed = false;
@@ -48,17 +43,6 @@
   let unlistenPromptMode = null;
 
   onMount(async () => {
-    try {
-      const savedDir = localStorage.getItem('candak_custom_download_dir');
-      if (savedDir) {
-        defaultDownloadDir = savedDir;
-      } else {
-        defaultDownloadDir = await GetDefaultDownloadDir();
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
     // Sync clipboard watcher state from saved preference
     const savedClipboard = localStorage.getItem('candak_clipboard_watching') === 'true';
     if (savedClipboard) {
@@ -178,29 +162,17 @@
     isAddModalOpen = true;
   }
 
-  async function handleOpenDownloadsFolder() {
-    try {
-      await OpenFolder(defaultDownloadDir);
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
   // Reactive Counts
   $: totalCount = downloads.length;
   $: downloadingCount = downloads.filter(d => d.status === 'downloading').length;
   $: completedCount = downloads.filter(d => d.status === 'completed').length;
   $: pausedCount = downloads.filter(d => d.status === 'paused').length;
 
-  // Filtered List based on activeTab and pill selection
+  // Filtered List based on pill selection
   $: filteredDownloads = downloads.filter(d => {
-    if (activeTab === 'files') {
-      if (d.status !== 'completed') return false;
-    } else {
-      if (filter === 'downloading' && d.status !== 'downloading') return false;
-      if (filter === 'completed' && d.status !== 'completed') return false;
-      if (filter === 'paused' && d.status !== 'paused') return false;
-    }
+    if (filter === 'downloading' && d.status !== 'downloading') return false;
+    if (filter === 'completed' && d.status !== 'completed') return false;
+    if (filter === 'paused' && d.status !== 'paused') return false;
     return true;
   });
 
@@ -218,9 +190,10 @@
     }
   }
 
-  function setActiveTab(tab) {
-    if (activeTab !== tab) {
-      activeTab = tab;
+  function handleNavDownloads() {
+    if (filter !== 'all') {
+      setFilter('all');
+    } else {
       clearSelection();
     }
   }
@@ -366,7 +339,7 @@
       <!-- Title -->
       <div>
         <h1 class="text-[26px] font-bold tracking-tight text-[var(--color-text)]">
-          {activeTab === 'files' ? 'Downloaded Files' : 'Downloads'}
+          Downloads
         </h1>
       </div>
 
@@ -384,72 +357,54 @@
       </div>
     </div>
 
-    <!-- Tab Specific Header Row -->
-    {#if activeTab === 'downloads'}
-      <!-- Filter Pills matching reference screenshot -->
-      <div class="flex items-center gap-2 mt-4 overflow-x-auto no-scrollbar" style="--wails-draggable:no-drag">
+    <!-- Filter Pills matching reference screenshot -->
+    <div class="flex items-center gap-2 mt-4 overflow-x-auto no-scrollbar" style="--wails-draggable:no-drag">
+      <button 
+        on:click={() => setFilter('all')}
+        class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
+          filter === 'all' 
+            ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
+            : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
+        }"
+      >
+        All files {totalCount}
+      </button>
+
+      <button 
+        on:click={() => setFilter('downloading')}
+        class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
+          filter === 'downloading' 
+            ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
+            : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
+        }"
+      >
+        Downloading {downloadingCount}
+      </button>
+
+      <button 
+        on:click={() => setFilter('completed')}
+        class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
+          filter === 'completed' 
+            ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
+            : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
+        }"
+      >
+        Completed {completedCount}
+      </button>
+
+      {#if pausedCount > 0}
         <button 
-          on:click={() => setFilter('all')}
+          on:click={() => setFilter('paused')}
           class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
-            filter === 'all' 
+            filter === 'paused' 
               ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
               : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
           }"
         >
-          All files {totalCount}
+          Paused {pausedCount}
         </button>
-
-        <button 
-          on:click={() => setFilter('downloading')}
-          class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
-            filter === 'downloading' 
-              ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
-              : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
-          }"
-        >
-          Downloading {downloadingCount}
-        </button>
-
-        <button 
-          on:click={() => setFilter('completed')}
-          class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
-            filter === 'completed' 
-              ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
-              : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
-          }"
-        >
-          Completed {completedCount}
-        </button>
-
-        {#if pausedCount > 0}
-          <button 
-            on:click={() => setFilter('paused')}
-            class="px-4 py-1.5 rounded-full text-[13px] font-semibold transition-all {
-              filter === 'paused' 
-                ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent-subtle-text)]' 
-                : 'text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/60'
-            }"
-          >
-            Paused {pausedCount}
-          </button>
-        {/if}
-      </div>
-    {:else}
-      <!-- Files Tab Banner with Open Folder Action -->
-      <div class="flex items-center justify-between mt-4 p-3 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl text-xs" style="--wails-draggable:no-drag">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <Folder size={18} class="text-[var(--color-accent)] shrink-0" />
-          <span class="text-[var(--color-secondary)] truncate font-mono text-[11px]">{defaultDownloadDir}</span>
-        </div>
-        <button 
-          on:click={handleOpenDownloadsFolder}
-          class="px-3 py-1.5 bg-[var(--color-accent-subtle)] hover:bg-[var(--color-accent)] text-[var(--color-accent)] hover:text-white rounded-xl font-semibold transition flex items-center gap-1.5 shrink-0"
-        >
-          <ExternalLink size={13} />
-          Open Folder
-        </button>
-      </div>
-    {/if}
+      {/if}
+    </div>
   </header>
 
   <!-- Content List Area -->
@@ -457,34 +412,20 @@
     {#if filteredDownloads.length === 0}
       <div class="h-full flex flex-col items-center justify-center py-20 text-center">
         <div class="w-16 h-16 rounded-3xl bg-[var(--color-surface)] border border-[var(--color-border)] shadow-xs flex items-center justify-center text-[var(--color-secondary)] mb-3">
-          {#if activeTab === 'files'}
-            <Folder size={26} strokeWidth={2} />
-          {:else}
-            <Download size={26} strokeWidth={2} />
-          {/if}
+          <Download size={26} strokeWidth={2} />
         </div>
         <h3 class="text-base font-bold text-[var(--color-text)]">
-          {#if activeTab === 'files'}
-            No downloaded files completed yet
-          {:else}
-            No downloads in this view
-          {/if}
+          No downloads in this view
         </h3>
         <p class="text-xs text-[var(--color-secondary)] max-w-xs mt-1">
-          {#if activeTab === 'files'}
-            Completed downloads will be listed here with quick-access actions.
-          {:else}
-            Click '+ Add' to start your first file download.
-          {/if}
+          Click '+ Add' to start your first file download.
         </p>
-        {#if activeTab === 'downloads'}
-          <button 
-            on:click={() => isAddModalOpen = true}
-            class="mt-4 px-5 py-2.5 text-xs font-bold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-full shadow-sm hover:shadow transition"
-          >
-            Start a Download
-          </button>
-        {/if}
+        <button 
+          on:click={() => isAddModalOpen = true}
+          class="mt-4 px-5 py-2.5 text-xs font-bold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-full shadow-sm hover:shadow transition"
+        >
+          Start a Download
+        </button>
       </div>
     {:else}
       {#each filteredDownloads as download (download.id)}
@@ -516,29 +457,29 @@
   <!-- Bottom Navigation Bar matching reference screenshot -->
   <footer class="fixed bottom-4 left-0 right-0 px-8 flex justify-center pointer-events-none">
     <nav class="bg-[var(--color-nav-bg)] border border-[var(--color-border)] rounded-3xl shadow-lg shadow-black/5 py-2.5 px-10 flex items-center gap-12 pointer-events-auto">
-      <!-- 1. Downloads Tab -->
+      <!-- 1. Downloads Button -->
       <button 
-        on:click={() => setActiveTab('downloads')}
-        class="flex flex-col items-center gap-1 transition-colors {
-          activeTab === 'downloads' ? 'text-[var(--color-accent)]' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'
-        }"
+        on:click={handleNavDownloads}
+        class="flex flex-col items-center gap-1 transition-colors text-[var(--color-accent)]"
+        title="Downloads"
+        aria-label="Downloads"
       >
-        <ArrowDown size={19} strokeWidth={activeTab === 'downloads' ? 2.6 : 2} />
+        <ArrowDown size={19} strokeWidth={2.6} />
         <span class="text-[11px] font-semibold">Downloads</span>
       </button>
 
-      <!-- 2. Files Tab -->
+      <!-- 2. History Button -->
       <button 
-        on:click={() => setActiveTab('files')}
-        class="flex flex-col items-center gap-1 transition-colors {
-          activeTab === 'files' ? 'text-[var(--color-accent)]' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'
-        }"
+        on:click={() => isHistoryModalOpen = true}
+        class="flex flex-col items-center gap-1 transition-colors text-[var(--color-secondary)] hover:text-[var(--color-text)]"
+        title="Open History"
+        aria-label="Open History"
       >
-        <Folder size={19} strokeWidth={activeTab === 'files' ? 2.6 : 2} />
-        <span class="text-[11px] font-semibold">Files</span>
+        <History size={19} strokeWidth={2} />
+        <span class="text-[11px] font-semibold">History</span>
       </button>
 
-      <!-- 3. Settings Tab (Restored) -->
+      <!-- 3. Settings Button -->
       <button 
         on:click={() => isSettingsModalOpen = true}
         class="flex flex-col items-center gap-1 transition-colors text-[var(--color-secondary)] hover:text-[var(--color-text)]"
