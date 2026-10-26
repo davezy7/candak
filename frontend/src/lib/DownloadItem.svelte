@@ -14,7 +14,6 @@
     getExtensionBadge,
     getFolderPath
   } from './formatters.js';
-  import ChunkVisualizer from './ChunkVisualizer.svelte';
   import ConfirmModal from './ConfirmModal.svelte';
   import { 
     Play, 
@@ -27,8 +26,6 @@
     FileVideo, 
     FileAudio, 
     FileImage, 
-    ChevronDown, 
-    ChevronUp, 
     Check
   } from 'lucide-svelte';
 
@@ -39,7 +36,6 @@
   export let isModifierKeyPressed = false;
   export let onToggleSelect = () => {};
 
-  let showChunks = false;
   let isActionLoading = false;
   let isDeleteModalOpen = false;
   let deleteFromDisk = false;
@@ -135,17 +131,17 @@
 
 {#snippet fileIcon()}
   {#if category === 'archive'}
-    <FileArchive size={22} strokeWidth={2} />
+    <FileArchive size={16} strokeWidth={2} />
   {:else if category === 'video'}
-    <FileVideo size={22} strokeWidth={2} />
+    <FileVideo size={16} strokeWidth={2} />
   {:else if category === 'audio'}
-    <FileAudio size={22} strokeWidth={2} />
+    <FileAudio size={16} strokeWidth={2} />
   {:else if category === 'image'}
-    <FileImage size={22} strokeWidth={2} />
+    <FileImage size={16} strokeWidth={2} />
   {:else if category === 'code'}
-    <FileCode size={22} strokeWidth={2} />
+    <FileCode size={16} strokeWidth={2} />
   {:else}
-    <FileText size={22} strokeWidth={2} />
+    <FileText size={16} strokeWidth={2} />
   {/if}
 {/snippet}
 
@@ -153,7 +149,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div 
   on:click={handleCardClick}
-  class="bg-[var(--color-surface)] rounded-2xl p-5 border shadow-xs hover:shadow-md transition-all duration-200 group relative {
+  class="bg-[var(--color-surface)] rounded-xl px-3 py-2 border shadow-xs hover:shadow-md transition-all duration-200 group relative overflow-hidden {
     isSelected 
       ? 'border-[var(--color-accent)] ring-1 ring-[var(--color-accent)]/30' 
       : 'border-[var(--color-border)]'
@@ -163,12 +159,12 @@
   <!-- Completed State Layout -->
   <div class="flex items-center justify-between gap-4">
     <!-- Icon & Titles -->
-    <div class="flex items-center gap-3.5 min-w-0 flex-1">
+    <div class="flex items-center gap-3 min-w-0 flex-1">
       <!-- Selection Checkbox -->
       <button 
         type="button"
         on:click|stopPropagation={(e) => onToggleSelect(e)}
-        class="w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer {
+        class="w-[18px] h-[18px] rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer {
           isMultiSelectMode || isModifierKeyPressed || isSelected 
             ? 'opacity-100' 
             : 'opacity-0 group-hover:opacity-100'
@@ -180,14 +176,14 @@
         title={isSelected ? "Deselect" : "Select"}
         aria-label="Select download"
       >
-        <Check size={12} strokeWidth={3} class={isSelected ? 'block' : 'opacity-0'} />
+        <Check size={11} strokeWidth={3} class={isSelected ? 'block' : 'opacity-0'} />
       </button>
 
       <!-- Squircle File Icon -->
       <button 
         type="button"
         on:click|stopPropagation={handleIconClick}
-        class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-colors bg-[var(--color-card-icon-muted)] text-[var(--color-secondary)] {
+        class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors bg-[var(--color-card-icon-muted)] text-[var(--color-secondary)] {
           !isMultiSelectMode ? 'cursor-pointer hover:opacity-80' : 'cursor-default'
         }"
         title={!isMultiSelectMode ? "Open File" : undefined}
@@ -198,11 +194,11 @@
       <!-- File Name & Metadata -->
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2 max-w-full">
-          <h4 class="font-bold text-[var(--color-text)] text-[15px] truncate leading-tight">
+          <h4 class="font-semibold text-[var(--color-text)] text-sm truncate leading-tight">
             <button 
               type="button"
               on:click|stopPropagation={handleNameClick}
-              class="text-left font-bold text-[var(--color-text)] truncate max-w-full {
+              class="text-left font-semibold text-[var(--color-text)] truncate max-w-full {
                 !isMultiSelectMode ? 'cursor-pointer hover:underline' : 'cursor-default'
               }" 
               title={download.filename}
@@ -215,7 +211,7 @@
           </span>
         </div>
         
-        <p class="text-xs text-[var(--color-secondary)] mt-1 font-medium flex items-center gap-1.5 truncate">
+        <p class="text-xs text-[var(--color-secondary)] mt-0.5 font-medium flex items-center gap-1.5 truncate">
           <span>{formatBytes(download.totalSize || download.downloadedSize)}</span>
           {#if getFolderPath(download.savePath)}
             <span>·</span>
@@ -233,7 +229,7 @@
         <button 
           type="button"
           on:click|stopPropagation={handleShowFolder}
-          class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] rounded-xl transition cursor-pointer"
+          class="p-1.5 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] rounded-lg transition cursor-pointer"
           title="Show in Folder"
           aria-label="Show in Folder"
         >
@@ -244,7 +240,7 @@
       <button 
         type="button"
         on:click|stopPropagation={handleDelete}
-        class="p-2 text-[var(--color-secondary)] hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition cursor-pointer"
+        class="p-1.5 text-[var(--color-secondary)] hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
         title="Delete Download"
         aria-label="Delete Download"
       >
@@ -256,12 +252,12 @@
   <!-- Active / Paused / Error State Layout -->
   <div class="flex items-center justify-between gap-4">
     <!-- Icon & Titles -->
-    <div class="flex items-center gap-3.5 min-w-0 flex-1">
+    <div class="flex items-center gap-3 min-w-0 flex-1">
       <!-- Selection Checkbox -->
       <button 
         type="button"
         on:click|stopPropagation={(e) => onToggleSelect(e)}
-        class="w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer {
+        class="w-[18px] h-[18px] rounded-md border flex items-center justify-center shrink-0 transition-all cursor-pointer {
           isMultiSelectMode || isModifierKeyPressed || isSelected 
             ? 'opacity-100' 
             : 'opacity-0 group-hover:opacity-100'
@@ -273,27 +269,35 @@
         title={isSelected ? "Deselect" : "Select"}
         aria-label="Select download"
       >
-        <Check size={12} strokeWidth={3} class={isSelected ? 'block' : 'opacity-0'} />
+        <Check size={11} strokeWidth={3} class={isSelected ? 'block' : 'opacity-0'} />
       </button>
 
       <!-- Squircle File Icon -->
       <div 
-        class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-colors bg-[var(--color-accent-subtle)] text-[var(--color-accent)]"
+        class="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 transition-colors bg-[var(--color-accent-subtle)] text-[var(--color-accent)]"
       >
         {@render fileIcon()}
       </div>
 
       <!-- File Name & Subtitle -->
       <div class="min-w-0 flex-1">
-        <h4 class="font-bold text-[var(--color-text)] text-[15px] truncate leading-tight" title={download.filename}>
+        <h4 class="font-semibold text-[var(--color-text)] text-sm truncate leading-tight" title={download.filename}>
           {download.filename}
         </h4>
         
-        <p class="text-xs text-[var(--color-secondary)] mt-1 font-medium flex items-center gap-1.5 truncate">
+        <p class="text-xs text-[var(--color-secondary)] mt-0.5 font-medium flex items-center gap-1.5 truncate">
           {#if download.status === 'downloading'}
             <span>{formatBytes(download.downloadedSize)} / {formatBytes(download.totalSize)}</span>
             <span>·</span>
             <span>{progress.toFixed(0)}%</span>
+            {#if download.speed > 0}
+              <span>·</span>
+              <span class="text-[var(--color-text)] font-semibold">{formatSpeed(download.speed)}</span>
+            {/if}
+            {#if download.eta > 0}
+              <span>·</span>
+              <span class="text-[var(--color-accent)] font-semibold">{formatETA(download.eta)}</span>
+            {/if}
           {:else if download.status === 'paused'}
             <span>{formatBytes(download.downloadedSize)} / {formatBytes(download.totalSize)}</span>
             <span>·</span>
@@ -311,28 +315,28 @@
     </div>
 
     <!-- Active Controls Slot -->
-    <div class="flex items-center gap-2 shrink-0">
+    <div class="flex items-center gap-1.5 shrink-0">
       <div class="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
         {#if !isMultiSelectMode}
           <button 
             type="button"
             on:click|stopPropagation={handleShowFolder}
-            class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] rounded-xl transition cursor-pointer"
+            class="p-1.5 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] rounded-lg transition cursor-pointer"
             title="Show in Folder"
             aria-label="Show in Folder"
           >
-            <Folder size={16} />
+            <Folder size={15} />
           </button>
         {/if}
 
         <button 
           type="button"
           on:click|stopPropagation={handleDelete}
-          class="p-2 text-[var(--color-secondary)] hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition cursor-pointer"
+          class="p-1.5 text-[var(--color-secondary)] hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
           title="Cancel Download"
           aria-label="Cancel Download"
         >
-          <Trash2 size={16} />
+          <Trash2 size={15} />
         </button>
       </div>
 
@@ -342,83 +346,35 @@
           type="button"
           on:click|stopPropagation={handlePause}
           disabled={isActionLoading}
-          class="w-8 h-8 rounded-full border-2 border-[var(--color-accent)] text-[var(--color-accent)] flex items-center justify-center hover:bg-[var(--color-accent-subtle)] transition active:scale-95 cursor-pointer disabled:opacity-50"
+          class="w-7 h-7 rounded-full border-2 border-[var(--color-accent)] text-[var(--color-accent)] flex items-center justify-center hover:bg-[var(--color-accent-subtle)] transition active:scale-95 cursor-pointer disabled:opacity-50"
           title="Pause Download"
           aria-label="Pause Download"
         >
-          <Pause size={14} strokeWidth={2.5} />
+          <Pause size={13} strokeWidth={2.5} />
         </button>
       {:else if download.status === 'paused' || download.status === 'error'}
         <button 
           type="button"
           on:click|stopPropagation={handleResume}
           disabled={isActionLoading}
-          class="w-8 h-8 rounded-full border-2 border-[var(--color-accent)] text-[var(--color-accent)] flex items-center justify-center hover:bg-[var(--color-accent-subtle)] transition active:scale-95 cursor-pointer disabled:opacity-50"
+          class="w-7 h-7 rounded-full border-2 border-[var(--color-accent)] text-[var(--color-accent)] flex items-center justify-center hover:bg-[var(--color-accent-subtle)] transition active:scale-95 cursor-pointer disabled:opacity-50"
           title="Resume Download"
           aria-label="Resume Download"
         >
-          <Play size={14} strokeWidth={2.5} class="ml-0.5" />
+          <Play size={13} strokeWidth={2.5} class="ml-0.5" />
         </button>
       {/if}
     </div>
   </div>
 
-  <!-- Progress Bar Track -->
-  <div class="mt-4 space-y-2">
-    <div class="h-1.5 w-full bg-[var(--color-border)] rounded-full overflow-hidden">
+  <!-- Bottom Accent Progress Bar -->
+  {#if download.status === 'downloading' || download.status === 'paused' || download.status === 'error'}
+    <div class="absolute bottom-0 left-0 right-0 h-1 bg-[var(--color-border)]/40 overflow-hidden">
       <div 
-        class="h-full bg-[var(--color-accent)] rounded-full transition-all duration-300"
+        class="h-full {download.status === 'error' ? 'bg-rose-500' : 'bg-[var(--color-accent)]'} transition-all duration-300"
         style="width: {progress}%;"
       ></div>
     </div>
-
-    <!-- Stats row -->
-    <div class="flex items-center justify-between text-xs font-medium">
-      <span class="text-[var(--color-secondary)]">
-        {#if download.status === 'downloading'}
-          {formatSpeed(download.speed)}
-        {:else if download.status === 'paused'}
-          Paused
-        {:else if download.status === 'error'}
-          Failed
-        {:else}
-          {download.status}
-        {/if}
-      </span>
-
-      {#if download.status === 'downloading' && download.eta > 0}
-        <span class="text-[var(--color-accent)] font-semibold">
-          {formatETA(download.eta)}
-        </span>
-      {/if}
-    </div>
-  </div>
-
-  <!-- Collapsible Diagnostics Slot -->
-  {#if download.chunks && download.chunks.length > 0}
-    <div class="mt-2 pt-2 flex items-center justify-between text-[11px] text-[var(--color-secondary)]">
-      <button 
-        type="button"
-        on:click|stopPropagation={() => showChunks = !showChunks}
-        class="hover:text-[var(--color-accent)] flex items-center gap-1 font-medium transition cursor-pointer"
-      >
-        {#if showChunks}
-          <ChevronUp size={12} />
-          Hide {download.chunks.length} Chunks
-        {:else}
-          <ChevronDown size={12} />
-          View {download.chunks.length} Chunks
-        {/if}
-      </button>
-
-      <span class="text-[10px] text-[var(--color-secondary)]/70 truncate max-w-[200px]" title={download.savePath}>
-        {download.savePath}
-      </span>
-    </div>
-
-    {#if showChunks}
-      <ChunkVisualizer chunks={download.chunks} totalSize={download.totalSize} />
-    {/if}
   {/if}
 {/if}
 </div>
