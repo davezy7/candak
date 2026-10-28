@@ -48,6 +48,12 @@
         const p = document.getElementById("movie_player");
         if (p && typeof p.setPlaybackQualityRange === "function") {
           p.setPlaybackQualityRange(e.data.quality, e.data.quality);
+          // A full buffer can defer the switch indefinitely; a same-position
+          // seek flushes it and forces an immediate fetch of the new quality
+          // so the sniffer can intercept it.
+          if (typeof p.seekTo === "function" && typeof p.getCurrentTime === "function") {
+            p.seekTo(p.getCurrentTime(), true);
+          }
         }
       } catch (err) { /* Player refused the switch */ }
     }

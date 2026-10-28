@@ -331,20 +331,28 @@
       for (const s of streams) {
         if (s.itag) byItag.set(String(s.itag), s);
       }
-      const seenLabels = new Set(); // AVC and VP9 share labels like "1080p"
+      // One entry per resolution: the player serves whichever codec it prefers
+      // (AVC/VP9/AV1 share "1080p"), so codec duplicates are meaningless.
+      // Buffered URLs win over quality-switch entries so already-sniffed
+      // streams grab instantly instead of forcing a rebuffer.
+      const byQuality = new Map();
       for (const m of ytMeta.values()) {
-        const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
-        const label = `${m.label}${suffix}`;
-        if (!seenLabels.add(label)) continue;
+        const key = m.isAudio ? "audio" : `v${m.height || m.label}`;
         const s = byItag.get(m.itag);
         const url = s ? s.url : m.url; // Intercepted (signed) beats pre-signed
+        const prev = byQuality.get(key);
+        if (!prev || (!prev.url && url)) byQuality.set(key, { m, url });
+      }
+      for (const { m, url } of byQuality.values()) {
         if (!url) {
-          if (!m.isAudio) unbuffered.push(m); // Offered via quality-switch interception
+          unbuffered.push(m); // Offered via quality-switch interception
           continue;
         }
-        variants.push({ label, size: formatSize(m.sizeBytes), url, ext: m.ext, itag: m.itag, height: m.height });
+        const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
+        variants.push({ label: `${m.label}${suffix}`, size: formatSize(m.sizeBytes), url, ext: m.ext, itag: m.itag, height: m.height });
       }
       variants.sort((a, b) => (b.height || 0) - (a.height || 0));
+      unbuffered.sort((a, b) => (b.height || 0) - (a.height || 0));
     } else {
       for (const s of streams) {
         if (variants.some(x => x.url === s.url)) continue;
@@ -457,7 +465,7 @@
 
   async function grabVariant(variant) {
     if (!variant) return;
-    const filename = `${sanitizeTitle(document.title)} (${variant.label}).${variant.ext}`;
+    const filename = `${sanitizeTitle(document.title)} (${variant.label.replace(" (video-only)", "")}).${variant.ext}`;
     try {
       await chrome.runtime.sendMessage({
         type: "candak:grab",
