@@ -35,71 +35,11 @@
 
   // --- YouTube page-world bridge ------------------------------------------------
   // Isolated content-script worlds cannot see page globals (ytInitialPlayerResponse,
-  // movie_player methods). On Chromium the page-bridge.js MAIN-world content script
-  // handles this; this inline injection is the fallback for engines without
-  // world:"MAIN" support (Firefox) or CSP-lenient pages. YouTube's Trusted Types
-  // policy blocks it there, which is fine — page-bridge.js is already active and
-  // both set the same window.__candakPageBridge guard, so only one bridge ever runs.
+  // movie_player methods), and strict page CSP/Trusted Types block inline-script
+  // injection. The bridge therefore ships as page-bridge.js, a world:"MAIN"
+  // content script declared in the manifest (Chromium 111+, Firefox 128+).
   // Formats flow back and quality-switch commands flow forward via window.postMessage.
   let ytFormats = null; // Slim format list last relayed by the bridge
-
-  function injectPageBridge() {
-    if (!/(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname)) return;
-    const bridge = () => {
-      if (window.__candakPageBridge) return;
-      window.__candakPageBridge = true;
-      const slim = (pr) => {
-        if (!pr || !pr.streamingData) return null;
-        const all = [].concat(pr.streamingData.formats || [], pr.streamingData.adaptiveFormats || []);
-        if (!all.length) return null;
-        return all.map((f) => ({
-          itag: f.itag,
-          mimeType: f.mimeType || "",
-          qualityLabel: f.qualityLabel || "",
-          height: f.height || 0,
-          hasAudio: !!(f.audioQuality || f.audioTrack),
-          contentLength: f.contentLength || 0,
-          url: f.url || null
-        }));
-      };
-      const currentFormats = () => {
-        let pr = window.ytInitialPlayerResponse;
-        try {
-          const p = document.getElementById("movie_player");
-          if (p && typeof p.getResponse === "function") {
-            const r = p.getResponse(); // Fresh across SPA navigations
-            if (r && r.streamingData) pr = r;
-          }
-        } catch (err) { /* Player API unavailable */ }
-        return slim(pr);
-      };
-      const post = () => {
-        const formats = currentFormats();
-        if (formats) window.postMessage({ source: "candak-page", formats }, window.location.origin);
-      };
-      window.addEventListener("yt-navigate-finish", post);
-      window.addEventListener("message", (e) => {
-        if (e.source !== window || !e.data || e.data.source !== "candak-content") return;
-        if (e.data.cmd === "collect") post();
-        if (e.data.cmd === "quality" && e.data.quality) {
-          try {
-            const p = document.getElementById("movie_player");
-            if (p && typeof p.setPlaybackQualityRange === "function") {
-              p.setPlaybackQualityRange(e.data.quality, e.data.quality);
-            }
-          } catch (err) { /* Player refused the switch */ }
-        }
-      });
-      post();
-    };
-    try {
-      const s = document.createElement("script");
-      s.textContent = `(${bridge.toString()})();`;
-      (document.head || document.documentElement).appendChild(s);
-      s.remove();
-    } catch (err) { /* Inline scripts blocked; overlay still works without it */ }
-  }
-  injectPageBridge();
 
   window.addEventListener("message", (e) => {
     if (e.source !== window || !e.data || e.data.source !== "candak-page") return;
@@ -391,15 +331,18 @@
       for (const s of streams) {
         if (s.itag) byItag.set(String(s.itag), s);
       }
+      const seenLabels = new Set(); // AVC and VP9 share labels like "1080p"
       for (const m of ytMeta.values()) {
+        const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
+        const label = `${m.label}${suffix}`;
+        if (!seenLabels.add(label)) continue;
         const s = byItag.get(m.itag);
         const url = s ? s.url : m.url; // Intercepted (signed) beats pre-signed
         if (!url) {
           if (!m.isAudio) unbuffered.push(m); // Offered via quality-switch interception
           continue;
         }
-        const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
-        variants.push({ label: `${m.label}${suffix}`, size: formatSize(m.sizeBytes), url, ext: m.ext, itag: m.itag, height: m.height });
+        variants.push({ label, size: formatSize(m.sizeBytes), url, ext: m.ext, itag: m.itag, height: m.height });
       }
       variants.sort((a, b) => (b.height || 0) - (a.height || 0));
     } else {
@@ -459,7 +402,8 @@
     for (const m of unbuffered) {
       const li = document.createElement("li");
       li.className = "pending";
-      li.innerHTML = `${m.label} <span class="tracks">click to buffer</span>`;
+      const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
+      li.innerHTML = `${m.label}${suffix} <span class="tracks">click to buffer</span>`;
       li.addEventListener("click", (e) => {
         e.stopPropagation();
         closeMenu();
@@ -497,7 +441,14 @@
   function requestQuality(meta) {
     // The player API lives in the page world; the bridge relays the switch
     window.postMessage({ source: "candak-content", cmd: "quality", quality: qualityName(meta.height) }, location.origin);
-    pendingGrab = { itag: meta.itag, label: meta.label };
+    const suffix = !meta.isAudio && !meta.hasAudio ? " (video-only)" : "";
+    // The player may answer the quality request with a different codec itag than
+    // the metadata entry clicked (e.g. VP9 instead of AVC), so the pending grab
+    // is matched by resolution, with the itag kept as a metadata-free fallback.
+    pendingGrab = { itag: meta.itag, height: meta.height, label: `${meta.label}${suffix}` };
+    // The target quality may already sit in the sniffer registry (buffered
+    // earlier in the session) — grab immediately instead of waiting for a refetch.
+    onStreamsUpdated();
   }
 
   function sanitizeTitle(title) {
@@ -531,7 +482,15 @@
     if (!targetVideo || !pill || !pill.classList.contains("on")) return;
     if (pendingGrab) {
       const streams = await queryStreams();
-      const s = streams.find(x => String(x.itag) === pendingGrab.itag);
+      // Match the newly sniffed stream by resolution via metadata (codec-agnostic);
+      // fall back to the exact itag when metadata is unavailable.
+      const ytMeta = collectYouTubeMeta();
+      const s = streams.find((x) => {
+        if (!x.itag) return false;
+        const m = ytMeta && ytMeta.get(String(x.itag));
+        if (m) return !m.isAudio && pendingGrab.height > 0 && m.height === pendingGrab.height;
+        return String(x.itag) === pendingGrab.itag;
+      });
       if (s) {
         const p = pendingGrab;
         pendingGrab = null;

@@ -283,6 +283,14 @@ async function handleGrabRelay(payload) {
     if (entry && entry.sizeBytes > 0) {
       headers["Range"] = `bytes=0-${entry.sizeBytes}`;
     }
+    // Sniffed URLs are player chunk requests capped by a `range=0-…` query
+    // param; drop it so Candak gets the whole file. `range` is never listed in
+    // the signed `sparams`, so removing it keeps the URL valid.
+    const u = new URL(payload.url);
+    if (u.searchParams.has("range")) {
+      u.searchParams.delete("range");
+      payload.url = u.href;
+    }
   }
 
   const resp = await fetch(`${CANDAK_LOOPBACK_URL}/api/grab`, {

@@ -91,3 +91,18 @@ test("media detection helpers classify MIME, extensions, itag and sizes", () => 
     512
   );
 });
+
+test("grab relay strips the chunk range param and sets a full-range header", async () => {
+  const ctx = loadBackground("");
+  const chunkUrl = "https://rr3.googlevideo.com/videoplayback?itag=137&range=0-1048575&expire=999&sig=abc";
+  ctx.registerStream(1, { url: chunkUrl, mimeType: "video/mp4", sizeBytes: 104857600, itag: "137" });
+  let captured = null;
+  ctx.fetch = async (url, opts) => {
+    captured = { url, body: JSON.parse(opts.body) };
+    return { ok: true };
+  };
+  await ctx.handleGrabRelay({ url: chunkUrl, filename: "v.mp4", headers: {} });
+  assert.equal(captured.url, "http://127.0.0.1:41920/api/grab");
+  assert.ok(!/range=/.test(captured.body.url), "chunk range param must be stripped");
+  assert.equal(captured.body.headers["Range"], "bytes=0-104857600");
+});
