@@ -92,6 +92,19 @@
       line-height: 1.4;
       margin-top: 8px;
     }
+    .site-btn {
+      width: 100%;
+      padding: 7px 10px;
+      border: 1px solid #334155;
+      border-radius: 6px;
+      background: #1e293b;
+      color: #f8fafc;
+      font-size: 12px;
+      cursor: pointer;
+      margin-bottom: 4px;
+    }
+    .site-btn:hover { border-color: #38bdf8; color: #38bdf8; }
+    .site-btn:disabled { opacity: 0.6; cursor: default; }
   </style>
 </head>
 <body>
@@ -114,6 +127,16 @@
       <span class="slider"></span>
     </label>
   </div>
+
+  <div class="toggle-row">
+    <span>Show video download panel</span>
+    <label class="switch">
+      <input type="checkbox" id="overlayToggle" checked>
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <button id="siteExclusionBtn" class="site-btn">Disable on this site</button>
 
   <div class="info">
     When enabled, browser downloads are automatically forwarded to Candak with URL, size, and save prompt.
