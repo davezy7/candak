@@ -277,19 +277,14 @@ async function handleGrabRelay(payload) {
   const cookieHeader = await getCookiesForUrl(payload.url);
   if (cookieHeader) headers["Cookie"] = cookieHeader;
 
-  // Preserve Google Video CDN token validity with an explicit full-range request
+  // Preserve Google Video CDN token validity: the sniffed URL is forwarded
+  // exactly as the player requested it (any query re-serialization — including
+  // dropping the player's chunk `range` param — risks a 403), and an explicit
+  // full-range header makes the server serve the whole file.
   if (/googlevideo\.com/.test(payload.url)) {
     const entry = findStreamEntry(payload.url);
     if (entry && entry.sizeBytes > 0) {
       headers["Range"] = `bytes=0-${entry.sizeBytes}`;
-    }
-    // Sniffed URLs are player chunk requests capped by a `range=0-…` query
-    // param; drop it so Candak gets the whole file. `range` is never listed in
-    // the signed `sparams`, so removing it keeps the URL valid.
-    const u = new URL(payload.url);
-    if (u.searchParams.has("range")) {
-      u.searchParams.delete("range");
-      payload.url = u.href;
     }
   }
 

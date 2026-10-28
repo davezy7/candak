@@ -148,7 +148,11 @@
     grabLabelEl = root.querySelector(".grab-label");
 
     root.querySelector(".grab").addEventListener("click", () => {
-      if (variants.length > 0) grabVariant(variants[0]);
+      if (pendingGrab) return; // A fetch is already in flight
+      const d = defaultEntry();
+      if (!d) return;
+      if (d.url) grabVariant(d);
+      else requestQuality(d); // Highest quality is unbuffered: fetch then auto-download
     });
     root.querySelector(".caret").addEventListener("click", (e) => {
       e.stopPropagation();
@@ -394,6 +398,27 @@
     if (targetVideo === v) renderMenu();
   }
 
+  // --- Default grab target ----------------------------------------------------
+  // The main button grabs the highest resolution across buffered and unbuffered
+  // entries (both sorted descending); generic sites fall back to the first
+  // sniffed stream.
+  function defaultEntry() {
+    const a = variants[0];
+    const b = unbuffered[0];
+    if (!a) return b || null;
+    if (!b) return a;
+    return (b.height || 0) > (a.height || 0) ? b : a;
+  }
+
+  function grabButtonLabel() {
+    const d = defaultEntry();
+    const arrow = variants.length + unbuffered.length > 1 ? " ▾" : "";
+    if (d && (d.height || d.itag) && d.label) {
+      return `Download ${d.label.replace(" (video-only)", "")}${arrow}`;
+    }
+    return `Download video${arrow}`;
+  }
+
   function renderMenu() {
     if (!menu) return;
     menu.innerHTML = "";
@@ -429,7 +454,7 @@
       menu.appendChild(li);
     }
     if (grabLabelEl) {
-      grabLabelEl.textContent = variants.length > 1 ? "Download video ▾" : "Download video";
+      grabLabelEl.textContent = grabButtonLabel();
     }
   }
 
@@ -470,7 +495,7 @@
     pendingGrab = null;
     if (pendingPoll) { clearInterval(pendingPoll); pendingPoll = null; }
     if (restore) {
-      if (grabLabelEl) grabLabelEl.textContent = variants.length > 1 ? "Download video ▾" : "Download video";
+      if (grabLabelEl) grabLabelEl.textContent = grabButtonLabel();
       scheduleSync();
       // Return the player to the quality it was on before the fetch
       window.postMessage({ source: "candak-content", cmd: "restore" }, location.origin);

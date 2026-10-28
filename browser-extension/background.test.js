@@ -92,7 +92,7 @@ test("media detection helpers classify MIME, extensions, itag and sizes", () => 
   );
 });
 
-test("grab relay strips the chunk range param and sets a full-range header", async () => {
+test("grab relay forwards the sniffed URL untouched and sets a full-range header", async () => {
   const ctx = loadBackground("");
   const chunkUrl = "https://rr3.googlevideo.com/videoplayback?itag=137&range=0-1048575&expire=999&sig=abc";
   ctx.registerStream(1, { url: chunkUrl, mimeType: "video/mp4", sizeBytes: 104857600, itag: "137" });
@@ -103,6 +103,6 @@ test("grab relay strips the chunk range param and sets a full-range header", asy
   };
   await ctx.handleGrabRelay({ url: chunkUrl, filename: "v.mp4", headers: {} });
   assert.equal(captured.url, "http://127.0.0.1:41920/api/grab");
-  assert.ok(!/range=/.test(captured.body.url), "chunk range param must be stripped");
+  assert.equal(captured.body.url, chunkUrl, "URL must be forwarded byte-for-byte (tampering risks 403)");
   assert.equal(captured.body.headers["Range"], "bytes=0-104857600");
 });
