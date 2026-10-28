@@ -103,8 +103,10 @@ test("grab relay forwards the sniffed URL untouched and sets a full-range header
     captured = { url, body: JSON.parse(opts.body) };
     return { ok: true };
   };
-  await ctx.handleGrabRelay({ url: chunkUrl, filename: "v.mp4", headers: {} });
+  await ctx.handleGrabRelay({ url: chunkUrl, filename: "v.mp4", headers: { "User-Agent": "Mozilla/5.0 Test" } });
   assert.equal(captured.url, "http://127.0.0.1:41920/api/grab");
   assert.equal(captured.body.url, chunkUrl, "URL must be forwarded byte-for-byte (tampering risks 403)");
-  assert.equal(captured.body.headers["Range"], "bytes=0-104857600");
+  assert.equal(captured.body.headers["Range"], "bytes=0-104857599");
+  assert.equal(captured.body.headers["User-Agent"], "Mozilla/5.0 Test");
+  assert.equal(captured.body.headers["Origin"], "https://www.youtube.com");
 });

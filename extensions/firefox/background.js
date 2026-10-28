@@ -19,10 +19,15 @@ async function isCandakRunning() {
   }
 }
 
-// Retrieve relevant cookies for target URL to preserve authenticated downloads
-async function getCookiesForUrl(targetUrl) {
+// Retrieve relevant cookies for target URL to preserve authenticated downloads.
+// For CDN hosts like googlevideo.com which have no cookies of their own, falls back
+// to the originating page URL (e.g. youtube.com).
+async function getCookiesForUrl(targetUrl, fallbackUrl) {
   try {
-    const cookies = await chrome.cookies.getAll({ url: targetUrl });
+    let cookies = await chrome.cookies.getAll({ url: targetUrl });
+    if ((!cookies || cookies.length === 0) && fallbackUrl) {
+      cookies = await chrome.cookies.getAll({ url: fallbackUrl });
+    }
     if (!cookies || cookies.length === 0) return "";
     return cookies.map(c => `${c.name}=${c.value}`).join("; ");
   } catch (err) {
@@ -297,17 +302,25 @@ async function parseHlsMasterPlaylist(manifestUrl) {
 
 async function handleGrabRelay(payload) {
   const headers = { ...(payload.headers || {}) };
-  const cookieHeader = await getCookiesForUrl(payload.url);
+
+  // Ensure browser User-Agent is forwarded so CDN signature checks pass
+  if (!headers["User-Agent"] && typeof navigator !== "undefined" && navigator.userAgent) {
+    headers["User-Agent"] = navigator.userAgent;
+  }
+
+  const referer = headers["Referer"] || "https://www.youtube.com/";
+  const cookieHeader = await getCookiesForUrl(payload.url, referer);
   if (cookieHeader) headers["Cookie"] = cookieHeader;
 
   // Preserve Google Video CDN token validity: the sniffed URL is forwarded
-  // exactly as the player requested it (any query re-serialization — including
-  // dropping the player's chunk `range` param — risks a 403), and an explicit
-  // full-range header makes the server serve the whole file.
+  // exactly as the player requested it, along with matching User-Agent, Origin,
+  // and valid full-range header (bytes=0-${sizeBytes - 1}).
   if (/googlevideo\.com/.test(payload.url)) {
+    if (!headers["Origin"]) headers["Origin"] = "https://www.youtube.com";
+    if (!headers["Referer"]) headers["Referer"] = "https://www.youtube.com/";
     const entry = findStreamEntry(payload.url);
     if (entry && entry.sizeBytes > 0) {
-      headers["Range"] = `bytes=0-${entry.sizeBytes}`;
+      headers["Range"] = `bytes=0-${entry.sizeBytes - 1}`;
     }
   }
 

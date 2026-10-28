@@ -558,7 +558,11 @@
         payload: {
           url: variant.url,
           filename,
-          headers: { Referer: location.href }
+          headers: {
+            "User-Agent": navigator.userAgent,
+            Referer: "https://www.youtube.com/",
+            Origin: location.origin
+          }
         }
       });
     } catch (err) {
