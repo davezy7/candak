@@ -14,7 +14,7 @@
   const DEBOUNCE_MS = 200;
   const EDGE_PAD = 4;
   const PENDING_POLL_MS = 400;
-  const PENDING_TIMEOUT_MS = 15000;
+  const PENDING_TIMEOUT_MS = 20000;
 
   // --- Settings ------------------------------------------------------------
   let settings = { overlayEnabled: true, excludedSites: [] };
@@ -312,8 +312,7 @@
   }
 
   function qualityName(height) {
-    if (height >= 2160) return "hd2160";
-    if (height >= 1440) return "hd1440";
+    if (height >= 1440) return "highres";
     if (height >= 1080) return "hd1080";
     if (height >= 720) return "hd720";
     if (height >= 480) return "large";

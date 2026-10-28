@@ -45,29 +45,47 @@
     if (!targetText) return;
     const gear = document.querySelector(".ytp-settings-button");
     if (!gear) return;
-    gear.click();
-    setTimeout(() => {
-      const items = Array.from(document.querySelectorAll(".ytp-menuitem"));
-      const qualityItem = items.find(it => /quality|kualitas|qualit/i.test(it.textContent));
+
+    // Check if settings menu is already open
+    const isMenuOpen = () => {
+      const p = document.querySelector(".ytp-popup.ytp-settings-menu");
+      return p && p.style.display !== "none" && p.offsetWidth > 0;
+    };
+    if (!isMenuOpen()) gear.click();
+
+    let tries = 0;
+    const step1 = setInterval(() => {
+      tries++;
+      const items = Array.from(document.querySelectorAll(".ytp-popup.ytp-settings-menu .ytp-menuitem"));
+      const qualityItem = items.find(it => /quality|kualitas|qualit|calidad|qualität|画質|화질|качество/i.test(it.textContent));
       if (qualityItem) {
+        clearInterval(step1);
         qualityItem.click();
-        setTimeout(() => {
-          const opts = Array.from(document.querySelectorAll(".ytp-quality-menu .ytp-menuitem, .ytp-panel-menu .ytp-menuitem"));
-          const cleanTarget = targetText.toLowerCase().replace(/[^0-9p]/g, "");
+
+        let subTries = 0;
+        const cleanTarget = targetText.toLowerCase().replace(/[^0-9p]/g, "");
+        const heightOnly = cleanTarget.split("p")[0] + "p"; // e.g. "2160p", "1080p"
+
+        const step2 = setInterval(() => {
+          subTries++;
+          const opts = Array.from(document.querySelectorAll(".ytp-popup.ytp-settings-menu .ytp-panel-menu .ytp-menuitem"));
           const target = opts.find(o => {
             const t = o.textContent.toLowerCase();
-            return t.includes(cleanTarget) || (cleanTarget.includes("p") && t.includes(cleanTarget.split("p")[0] + "p"));
+            return t.includes(cleanTarget) || t.includes(heightOnly);
           });
           if (target) {
+            clearInterval(step2);
             target.click();
-          } else {
-            gear.click();
+          } else if (subTries > 12) {
+            clearInterval(step2);
+            if (isMenuOpen()) gear.click();
           }
-        }, 50);
-      } else {
-        gear.click();
+        }, 80);
+      } else if (tries > 12) {
+        clearInterval(step1);
+        if (isMenuOpen()) gear.click();
       }
-    }, 50);
+    }, 80);
   }
 
   window.addEventListener("yt-navigate-finish", post);
@@ -93,6 +111,9 @@
           // so the sniffer can intercept it.
           if (typeof p.seekTo === "function" && typeof p.getCurrentTime === "function") {
             p.seekTo(p.getCurrentTime(), true);
+          }
+          if (typeof p.playVideo === "function" && typeof p.getPlayerState === "function" && p.getPlayerState() === 2) {
+            p.playVideo();
           }
         }
       } catch (err) { /* Player refused the switch */ }
