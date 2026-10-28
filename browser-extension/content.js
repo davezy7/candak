@@ -33,6 +33,77 @@
     }
   });
 
+  // --- YouTube page-world bridge ------------------------------------------------
+  // Isolated content-script worlds cannot see page globals (ytInitialPlayerResponse,
+  // movie_player methods), so a tiny bridge is injected inline into the page world
+  // on YouTube frames. Formats flow back and quality-switch commands flow forward
+  // via window.postMessage. Pages whose CSP refuses inline scripts simply skip it.
+  let ytFormats = null; // Slim format list last relayed by the bridge
+
+  function injectPageBridge() {
+    if (!/(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname)) return;
+    const bridge = () => {
+      if (window.__candakPageBridge) return;
+      window.__candakPageBridge = true;
+      const slim = (pr) => {
+        if (!pr || !pr.streamingData) return null;
+        const all = [].concat(pr.streamingData.formats || [], pr.streamingData.adaptiveFormats || []);
+        if (!all.length) return null;
+        return all.map((f) => ({
+          itag: f.itag,
+          mimeType: f.mimeType || "",
+          qualityLabel: f.qualityLabel || "",
+          height: f.height || 0,
+          hasAudio: !!(f.audioQuality || f.audioTrack),
+          contentLength: f.contentLength || 0,
+          url: f.url || null
+        }));
+      };
+      const currentFormats = () => {
+        let pr = window.ytInitialPlayerResponse;
+        try {
+          const p = document.getElementById("movie_player");
+          if (p && typeof p.getResponse === "function") {
+            const r = p.getResponse(); // Fresh across SPA navigations
+            if (r && r.streamingData) pr = r;
+          }
+        } catch (err) { /* Player API unavailable */ }
+        return slim(pr);
+      };
+      const post = () => {
+        const formats = currentFormats();
+        if (formats) window.postMessage({ source: "candak-page", formats }, window.location.origin);
+      };
+      window.addEventListener("yt-navigate-finish", post);
+      window.addEventListener("message", (e) => {
+        if (e.source !== window || !e.data || e.data.source !== "candak-content") return;
+        if (e.data.cmd === "collect") post();
+        if (e.data.cmd === "quality" && e.data.quality) {
+          try {
+            const p = document.getElementById("movie_player");
+            if (p && typeof p.setPlaybackQualityRange === "function") {
+              p.setPlaybackQualityRange(e.data.quality, e.data.quality);
+            }
+          } catch (err) { /* Player refused the switch */ }
+        }
+      });
+      post();
+    };
+    try {
+      const s = document.createElement("script");
+      s.textContent = `(${bridge.toString()})();`;
+      (document.head || document.documentElement).appendChild(s);
+      s.remove();
+    } catch (err) { /* Inline scripts blocked; overlay still works without it */ }
+  }
+  injectPageBridge();
+
+  window.addEventListener("message", (e) => {
+    if (e.source !== window || !e.data || e.data.source !== "candak-page") return;
+    ytFormats = e.data.formats || null;
+    if (targetVideo && pill && pill.classList.contains("on")) loadVariants();
+  });
+
   // --- Overlay state ---------------------------------------------------------
   let host = null;
   let pill = null;
@@ -214,6 +285,8 @@
     ensureUI();
     pill.classList.add("on");
     pill.style.visibility = "visible";
+    // Nudge the page-world bridge in case formats arrived after injection
+    window.postMessage({ source: "candak-content", cmd: "collect" }, location.origin);
     loadVariants();
     startTracking();
     scheduleSync();
@@ -252,19 +325,27 @@
     return m ? m[1].toLowerCase() : "mp4";
   }
 
-  // YouTube player metadata: all qualities keyed by itag. Only pre-signed
-  // `url` fields are used; signatureCipher is never unpacked (invalid without
-  // deciphering), so intercepted URLs win whenever the sniffer has seen them.
+  function formatSize(bytes) {
+    const n = Number(bytes);
+    if (!n || n <= 0) return "";
+    const units = ["KB", "MB", "GB"];
+    let v = n / 1024;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
+  }
+
+  // YouTube player metadata relayed by the page-world bridge, all qualities keyed
+  // by itag. Only pre-signed `url` fields are used; signatureCipher is never
+  // unpacked (invalid without deciphering), so intercepted URLs win whenever the
+  // sniffer has seen them.
   function collectYouTubeMeta() {
-    const pr = window.ytInitialPlayerResponse;
-    if (!pr || !pr.streamingData) return null;
-    const formats = [
-      ...(pr.streamingData.formats || []),
-      ...(pr.streamingData.adaptiveFormats || [])
-    ];
-    if (formats.length === 0) return null;
+    if (!ytFormats || ytFormats.length === 0) return null;
     const meta = new Map();
-    for (const f of formats) {
+    for (const f of ytFormats) {
       const mime = (f.mimeType || "").split(";")[0].trim();
       const isAudio = mime.startsWith("audio/");
       meta.set(String(f.itag), {
@@ -273,7 +354,8 @@
         height: f.height || 0,
         ext: extFromMime(mime),
         isAudio,
-        hasAudio: isAudio || !!(f.audioQuality || f.audioTrack),
+        hasAudio: isAudio || !!f.hasAudio,
+        sizeBytes: Number(f.contentLength) || 0,
         url: f.url || null
       });
     }
@@ -314,7 +396,7 @@
           continue;
         }
         const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
-        variants.push({ label: `${m.label}${suffix}`, url, ext: m.ext, itag: m.itag, height: m.height });
+        variants.push({ label: `${m.label}${suffix}`, size: formatSize(m.sizeBytes), url, ext: m.ext, itag: m.itag, height: m.height });
       }
       variants.sort((a, b) => (b.height || 0) - (a.height || 0));
     } else {
@@ -328,7 +410,7 @@
             if (res && res.variants) {
               for (const hv of res.variants) {
                 variants.push({
-                  label: hv.label || "Original",
+                  label: hv.label || (hv.bandwidth ? `${(hv.bandwidth / 1e6).toFixed(1)} Mbps` : "Original"),
                   url: hv.url,
                   ext: "m3u8",
                   tracks: hv.tracks
@@ -339,8 +421,13 @@
             // Manifest fetch failed; skip this stream
           }
         } else {
+          // Plain file: resolution is only knowable for the source actually
+          // feeding the target video; everything else keeps the size alone.
+          const src = v.currentSrc || v.src || "";
+          const h = src && s.url === src && v.videoHeight > 0 ? `${v.videoHeight}p` : "";
           variants.push({
-            label: "Original",
+            label: h || "Original",
+            size: formatSize(s.sizeBytes),
             url: s.url,
             ext: extFromMime(s.mimeType) || extFromUrl(s.url)
           });
@@ -356,8 +443,9 @@
     menu.innerHTML = "";
     for (const v of variants) {
       const li = document.createElement("li");
+      const size = v.size ? ` <span class="tracks">${v.size}</span>` : "";
       const tracks = v.tracks ? ` <span class="tracks">${v.tracks}</span>` : "";
-      li.innerHTML = `${v.label}${tracks}`;
+      li.innerHTML = `${v.label}${size}${tracks}`;
       li.addEventListener("click", (e) => {
         e.stopPropagation();
         closeMenu();
@@ -391,6 +479,8 @@
   function openMenu() {
     if (!menu) return;
     menuOpen = true;
+    // Ask the page-world bridge for fresh formats (SPA navigations go stale)
+    window.postMessage({ source: "candak-content", cmd: "collect" }, location.origin);
     renderMenu();
     menu.classList.add("on");
     scheduleSync();
@@ -402,10 +492,8 @@
   }
 
   function requestQuality(meta) {
-    const player = document.getElementById("movie_player");
-    if (!player || typeof player.setPlaybackQualityRange !== "function") return;
-    const q = qualityName(meta.height);
-    player.setPlaybackQualityRange(q, q);
+    // The player API lives in the page world; the bridge relays the switch
+    window.postMessage({ source: "candak-content", cmd: "quality", quality: qualityName(meta.height) }, location.origin);
     pendingGrab = { itag: meta.itag, label: meta.label };
   }
 
