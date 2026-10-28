@@ -8,13 +8,12 @@
 
   if (!/^https?:$/.test(location.protocol)) return;
 
+  const IS_YOUTUBE = /(^|\.)youtube(-nocookie)?\.com$/.test(location.hostname);
   const MIN_VIDEO_W = 200;
   const MIN_VIDEO_H = 150;
   const GAP = 8;
   const DEBOUNCE_MS = 200;
   const EDGE_PAD = 4;
-  const PENDING_POLL_MS = 400;
-  const PENDING_TIMEOUT_MS = 20000;
 
   // --- Settings ------------------------------------------------------------
   let settings = { overlayEnabled: true, excludedSites: [] };
@@ -35,25 +34,12 @@
     }
   });
 
-  // --- YouTube page-world bridge ------------------------------------------------
-  // Isolated content-script worlds cannot see page globals (ytInitialPlayerResponse,
-  // movie_player methods), and strict page CSP/Trusted Types block inline-script
-  // injection. The bridge therefore ships as page-bridge.js, a world:"MAIN"
-  // content script declared in the manifest (Chromium 111+, Firefox 128+).
-  // Formats flow back and quality-switch commands flow forward via window.postMessage.
-  let ytFormats = null; // Slim format list last relayed by the bridge
-
-  window.addEventListener("message", (e) => {
-    if (e.source !== window || !e.data || e.data.source !== "candak-page") return;
-    ytFormats = e.data.formats || null;
-    if (targetVideo && pill && pill.classList.contains("on")) loadVariants();
-  });
-
   // --- Overlay state ---------------------------------------------------------
   let host = null;
   let pill = null;
   let menu = null;
   let grabLabelEl = null;
+  let caretEl = null;
   let targetVideo = null;
   let dockedTop = true;
   let manualOffset = null; // Viewport-locked drag offset for this session
@@ -63,9 +49,7 @@
   let rafId = 0;
   let intersectionObserver = null;
   let dismissed = new WeakSet(); // Videos the user closed the overlay for
-  let variants = []; // Offered streams: {label, url, ext, itag?, height?}
-  let unbuffered = []; // YouTube metadata qualities not yet intercepted
-  let pendingGrab = null; // {itag, label} waiting for interception after quality switch
+  let variants = []; // Offered streams: {label, url, ext, size?, tracks?}
   let menuOpen = false;
 
   // --- UI construction -------------------------------------------------------
@@ -132,7 +116,6 @@
         }
         .menu li:hover { background: #1e293b; color: #38bdf8; }
         .menu li .tracks { color: #64748b; font-size: 10px; margin-left: 6px; }
-        .menu li.pending .tracks { color: #f59e0b; }
       </style>
       <div class="pill">
         <button class="grip" title="Drag to move (double-click resets)">⠿</button>
@@ -146,18 +129,25 @@
     pill = root.querySelector(".pill");
     menu = root.querySelector(".menu");
     grabLabelEl = root.querySelector(".grab-label");
+    caretEl = root.querySelector(".caret");
+
+    if (IS_YOUTUBE) {
+      caretEl.style.display = "none";
+    }
 
     root.querySelector(".grab").addEventListener("click", () => {
-      if (pendingGrab) return; // A fetch is already in flight
-      const d = defaultEntry();
-      if (!d) return;
-      if (d.url) grabVariant(d);
-      else requestQuality(d); // Highest quality is unbuffered: fetch then auto-download
+      if (IS_YOUTUBE) {
+        grabYouTubeVideo();
+        return;
+      }
+      if (variants.length > 0) grabVariant(variants[0]);
     });
-    root.querySelector(".caret").addEventListener("click", (e) => {
+
+    caretEl.addEventListener("click", (e) => {
       e.stopPropagation();
       menuOpen ? closeMenu() : openMenu();
     });
+
     root.querySelector(".close").addEventListener("click", () => {
       if (targetVideo) dismissed.add(targetVideo);
       detach();
@@ -202,7 +192,7 @@
 
   const mo = new MutationObserver(debounce(() => {
     if (!enabledForSite()) return;
-    scheduleSync(); // Layout shifts (videos added/removed) move the target rect
+    scheduleSync();
   }, DEBOUNCE_MS));
   mo.observe(document.documentElement, { childList: true, subtree: true });
 
@@ -228,14 +218,10 @@
     }
     targetVideo = v;
     manualOffset = null;
-    stopPendingGrab(false);
     variants = [];
-    unbuffered = [];
     ensureUI();
     pill.classList.add("on");
     pill.style.visibility = "visible";
-    // Nudge the page-world bridge in case formats arrived after injection
-    window.postMessage({ source: "candak-content", cmd: "collect" }, location.origin);
     loadVariants();
     startTracking();
     scheduleSync();
@@ -244,7 +230,6 @@
   function detach() {
     stopTracking();
     targetVideo = null;
-    stopPendingGrab(false);
     if (pill) {
       pill.classList.remove("on");
       closeMenu();
@@ -287,132 +272,51 @@
     return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
   }
 
-  // YouTube player metadata relayed by the page-world bridge, all qualities keyed
-  // by itag. Only pre-signed `url` fields are used; signatureCipher is never
-  // unpacked (invalid without deciphering), so intercepted URLs win whenever the
-  // sniffer has seen them.
-  function collectYouTubeMeta() {
-    if (!ytFormats || ytFormats.length === 0) return null;
-    const meta = new Map();
-    for (const f of ytFormats) {
-      const mime = (f.mimeType || "").split(";")[0].trim();
-      const isAudio = mime.startsWith("audio/");
-      meta.set(String(f.itag), {
-        itag: String(f.itag),
-        label: isAudio ? "Audio" : (f.qualityLabel || (f.height ? `${f.height}p` : "Video")),
-        height: f.height || 0,
-        ext: extFromMime(mime),
-        isAudio,
-        hasAudio: isAudio || !!f.hasAudio,
-        sizeBytes: Number(f.contentLength) || 0,
-        url: f.url || null
-      });
-    }
-    return meta;
-  }
-
-  function qualityName(height) {
-    if (height >= 1440) return "highres";
-    if (height >= 1080) return "hd1080";
-    if (height >= 720) return "hd720";
-    if (height >= 480) return "large";
-    if (height >= 360) return "medium";
-    if (height >= 240) return "small";
-    return "tiny";
-  }
-
   async function loadVariants() {
     const v = targetVideo;
     if (!v) return;
+
+    if (IS_YOUTUBE) {
+      // YouTube is handled by Candak's dedicated YouTube downloader
+      if (grabLabelEl) grabLabelEl.textContent = "Download video";
+      scheduleSync();
+      return;
+    }
+
     const streams = await queryStreams();
-    if (targetVideo !== v) return; // Target changed while querying
+    if (targetVideo !== v) return;
 
-    const ytMeta = collectYouTubeMeta();
     variants = [];
-    unbuffered = [];
-
-    if (ytMeta) {
-      const byItag = new Map();
-      for (const s of streams) {
-        if (s.itag) byItag.set(String(s.itag), s);
-      }
-      // One entry per resolution: the player serves whichever codec it prefers
-      // (AVC/VP9/AV1 share "1080p"), so codec duplicates are meaningless.
-      // Buffered URLs win over quality-switch entries so already-sniffed
-      // streams grab instantly instead of forcing a rebuffer.
-      const byQuality = new Map();
-      for (const m of ytMeta.values()) {
-        const key = m.isAudio ? "audio" : `v${m.height || m.label}`;
-        const s = byItag.get(m.itag);
-        const url = s ? s.url : null; // Only player-intercepted streams have valid PoTokens
-        const prev = byQuality.get(key);
-        if (!prev || (!prev.url && url)) byQuality.set(key, { m, url });
-      }
-      for (const { m, url } of byQuality.values()) {
-        if (!url) {
-          unbuffered.push(m); // Offered via quality-switch interception
-          continue;
-        }
-        const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
-        variants.push({ label: `${m.label}${suffix}`, size: formatSize(m.sizeBytes), url, ext: m.ext, itag: m.itag, height: m.height });
-      }
-      variants.sort((a, b) => (b.height || 0) - (a.height || 0));
-      unbuffered.sort((a, b) => (b.height || 0) - (a.height || 0));
-    } else {
-      for (const s of streams) {
-        if (variants.some(x => x.url === s.url)) continue;
-        if (/mpegurl/i.test(s.mimeType) || /\.m3u8$/i.test(s.url)) {
-          // Lazy-parse HLS masters only when the overlay is actually used
-          try {
-            const res = await chrome.runtime.sendMessage({ type: "candak:parseHLS", url: s.url });
-            if (targetVideo !== v) return;
-            if (res && res.variants) {
-              for (const hv of res.variants) {
-                variants.push({
-                  label: hv.label || (hv.bandwidth ? `${(hv.bandwidth / 1e6).toFixed(1)} Mbps` : "Original"),
-                  url: hv.url,
-                  ext: "m3u8",
-                  tracks: hv.tracks
-                });
-              }
+    for (const s of streams) {
+      if (variants.some(x => x.url === s.url)) continue;
+      if (/mpegurl/i.test(s.mimeType) || /\.m3u8$/i.test(s.url)) {
+        try {
+          const res = await chrome.runtime.sendMessage({ type: "candak:parseHLS", url: s.url });
+          if (targetVideo !== v) return;
+          if (res && res.variants) {
+            for (const hv of res.variants) {
+              variants.push({
+                label: hv.label || (hv.bandwidth ? `${(hv.bandwidth / 1e6).toFixed(1)} Mbps` : "Original"),
+                url: hv.url,
+                ext: "m3u8",
+                tracks: hv.tracks
+              });
             }
-          } catch (err) {
-            // Manifest fetch failed; skip this stream
           }
-        } else {
-          // Plain file: resolution is only knowable for the source actually
-          // feeding the target video; everything else keeps the size alone.
-          const src = v.currentSrc || v.src || "";
-          const h = src && s.url === src && v.videoHeight > 0 ? `${v.videoHeight}p` : "";
-          variants.push({
-            label: h || "Original",
-            size: formatSize(s.sizeBytes),
-            url: s.url,
-            ext: extFromMime(s.mimeType) || extFromUrl(s.url)
-          });
-        }
+        } catch (_) {}
+      } else {
+        const src = v.currentSrc || v.src || "";
+        const h = src && s.url === src && v.videoHeight > 0 ? `${v.videoHeight}p` : "";
+        variants.push({
+          label: h || "Original",
+          size: formatSize(s.sizeBytes),
+          url: s.url,
+          ext: extFromMime(s.mimeType) || extFromUrl(s.url)
+        });
       }
     }
 
     if (targetVideo === v) renderMenu();
-  }
-
-  // --- Default grab target ----------------------------------------------------
-  // The main button defaults to the highest buffered (ready) stream so clicking
-  // it grabs instantly with zero delay. If nothing is buffered yet, it falls back
-  // to the highest metadata quality.
-  function defaultEntry() {
-    if (variants.length > 0) return variants[0];
-    return unbuffered[0] || null;
-  }
-
-  function grabButtonLabel() {
-    const d = defaultEntry();
-    const arrow = variants.length + unbuffered.length > 1 ? " ▾" : "";
-    if (d && (d.height || d.itag) && d.label) {
-      return `Download ${d.label.replace(" (video-only)", "")}${arrow}`;
-    }
-    return `Download video${arrow}`;
   }
 
   function renderMenu() {
@@ -430,19 +334,7 @@
       });
       menu.appendChild(li);
     }
-    for (const m of unbuffered) {
-      const li = document.createElement("li");
-      li.className = "pending";
-      const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
-      li.innerHTML = `${m.label}${suffix} <span class="tracks">fetch &amp; download</span>`;
-      li.addEventListener("click", (e) => {
-        e.stopPropagation();
-        closeMenu();
-        requestQuality(m);
-      });
-      menu.appendChild(li);
-    }
-    if (variants.length + unbuffered.length === 0) {
+    if (variants.length === 0) {
       const li = document.createElement("li");
       li.textContent = "No stream detected yet";
       li.style.cursor = "default";
@@ -450,15 +342,23 @@
       menu.appendChild(li);
     }
     if (grabLabelEl) {
-      grabLabelEl.textContent = grabButtonLabel();
+      const first = variants[0];
+      const arrow = variants.length > 1 ? " ▾" : "";
+      if (first && first.label) {
+        grabLabelEl.textContent = `Download ${first.label}${arrow}`;
+      } else {
+        grabLabelEl.textContent = `Download video${arrow}`;
+      }
     }
+    if (caretEl) {
+      caretEl.style.display = variants.length > 1 ? "" : "none";
+    }
+    scheduleSync();
   }
 
   function openMenu() {
-    if (!menu) return;
+    if (!menu || IS_YOUTUBE) return;
     menuOpen = true;
-    // Ask the page-world bridge for fresh formats (SPA navigations go stale)
-    window.postMessage({ source: "candak-content", cmd: "collect" }, location.origin);
     renderMenu();
     menu.classList.add("on");
     scheduleSync();
@@ -469,88 +369,13 @@
     if (menu) menu.classList.remove("on");
   }
 
-  function requestQuality(meta) {
-    // The player API lives in the page world; the bridge relays the switch
-    window.postMessage({
-      source: "candak-content",
-      cmd: "quality",
-      quality: qualityName(meta.height),
-      label: meta.label
-    }, location.origin);
-    const suffix = !meta.isAudio && !meta.hasAudio ? " (video-only)" : "";
-    // The player may answer the quality request with a different codec itag than
-    // the metadata entry clicked (e.g. VP9 instead of AVC), so the pending grab
-    // is matched by resolution, with the itag kept as a metadata-free fallback.
-    pendingGrab = { itag: meta.itag, height: meta.height, isAudio: !!meta.isAudio, label: `${meta.label}${suffix}` };
-    if (grabLabelEl) grabLabelEl.textContent = `Fetching ${meta.label}…`;
-    scheduleSync(); // Label width changes the pill size
-    pollPendingGrab();
-  }
-
-  // --- Pending quality grab: poll the sniffer until the switched-to resolution
-  // is intercepted, then hand it to Candak automatically. Polling makes the
-  // handoff independent of any single background nudge arriving.
-  let pendingPoll = null;
-
-  function stopPendingGrab(restore) {
-    pendingGrab = null;
-    if (pendingPoll) { clearInterval(pendingPoll); pendingPoll = null; }
-    if (restore) {
-      if (grabLabelEl) grabLabelEl.textContent = grabButtonLabel();
-      scheduleSync();
-      // Return the player to the quality it was on before the fetch
-      window.postMessage({ source: "candak-content", cmd: "restore" }, location.origin);
-    }
-  }
-
-  async function tryPendingGrab() {
-    if (!pendingGrab) return false;
-    const streams = await queryStreams();
-    const ytMeta = collectYouTubeMeta();
-    const s = streams.find((x) => {
-      if (!x.itag) return false;
-      const m = ytMeta && ytMeta.get(String(x.itag));
-      if (m) {
-        if (pendingGrab.isAudio) return m.isAudio;
-        return !m.isAudio && pendingGrab.height > 0 && m.height === pendingGrab.height;
-      }
-      return String(x.itag) === pendingGrab.itag;
-    });
-    if (!s) return false;
-    const p = pendingGrab;
-    stopPendingGrab(true); // Grab fired: restore the label and playback quality
-    grabVariant({ label: p.label, url: s.url, ext: extFromMime(s.mimeType) });
-    return true;
-  }
-
-  function pollPendingGrab() {
-    if (pendingPoll) clearInterval(pendingPoll);
-    let waited = 0;
-    const tick = async () => {
-      if (!pendingGrab) { stopPendingGrab(false); return; }
-      if (await tryPendingGrab()) return;
-      waited += PENDING_POLL_MS;
-      if (waited >= PENDING_TIMEOUT_MS) {
-        console.warn("[Candak] Timed out fetching", pendingGrab.label);
-        stopPendingGrab(true);
-        // Fallback: if quality switch was blocked or timed out, grab the best
-        // buffered stream already available so the user still gets a download.
-        if (variants.length > 0) {
-          grabVariant(variants[0]);
-        }
-      }
-    };
-    tick(); // Pre-buffered qualities may already sit in the sniffer registry
-    pendingPoll = setInterval(tick, PENDING_POLL_MS);
-  }
-
   function sanitizeTitle(title) {
     return (title || "video").replace(/[\\/:*?"<>|]+/g, "").trim().slice(0, 120) || "video";
   }
 
   async function grabVariant(variant) {
     if (!variant) return;
-    const filename = `${sanitizeTitle(document.title)} (${variant.label.replace(" (video-only)", "")}).${variant.ext}`;
+    const filename = `${sanitizeTitle(document.title)} (${variant.label}).${variant.ext}`;
     try {
       await chrome.runtime.sendMessage({
         type: "candak:grab",
@@ -559,8 +384,7 @@
           filename,
           headers: {
             "User-Agent": navigator.userAgent,
-            Referer: "https://www.youtube.com/",
-            Origin: location.origin
+            Referer: location.href
           }
         }
       });
@@ -569,20 +393,34 @@
     }
   }
 
+  async function grabYouTubeVideo() {
+    const filename = `${sanitizeTitle(document.title)}.mp4`;
+    try {
+      await chrome.runtime.sendMessage({
+        type: "candak:grab",
+        payload: {
+          url: location.href,
+          filename,
+          headers: {
+            "User-Agent": navigator.userAgent,
+            Referer: location.href
+          }
+        }
+      });
+    } catch (err) {
+      console.warn("[Candak] YouTube grab handoff failed:", err);
+    }
+  }
+
   // Background nudges us whenever a new media response is sniffed
   chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type === "candak:streamsUpdated") onStreamsUpdated();
+    if (msg.type === "candak:streamsUpdated") {
+      if (targetVideo && pill && pill.classList.contains("on")) {
+        loadVariants();
+      }
+    }
     return false;
   });
-
-  async function onStreamsUpdated() {
-    if (!targetVideo || !pill || !pill.classList.contains("on")) return;
-    if (pendingGrab) {
-      await tryPendingGrab(); // The poll retries too; keep the menu frozen while pending
-      return;
-    }
-    loadVariants();
-  }
 
   // --- Docking, flipping and GPU-composited tracking ----------------------------
   function startTracking() {

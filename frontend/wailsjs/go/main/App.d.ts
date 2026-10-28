@@ -75,3 +75,9 @@ export function SetWindowVisible(arg1:boolean):Promise<void>;
 export function ShowInFolder(arg1:string):Promise<void>;
 
 export function SuppressClipboardURL(arg1:string):Promise<void>;
+
+export function IsYouTubeURL(arg1:string):Promise<boolean>;
+
+export function GetYouTubeMetadata(arg1:string):Promise<any>;
+
+export function DownloadYouTubeVideo(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;

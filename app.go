@@ -21,6 +21,7 @@ import (
 	"candak/internal/sysutil"
 	"candak/internal/tray"
 	"candak/internal/updater"
+	"candak/internal/ytdl"
 	"sync"
 	"time"
 
@@ -373,13 +374,21 @@ func (a *App) HandleGrabRequest(req models.GrabRequest) {
 	a.isPromptOnly = true
 	a.mu.Unlock()
 
+	isYT := ytdl.IsYouTubeURL(req.URL)
+
 	wailsRuntime.WindowSetAlwaysOnTop(a.ctx, true)
-	wailsRuntime.WindowSetMinSize(a.ctx, 460, 200)
-	wailsRuntime.WindowSetSize(a.ctx, 500, 220)
+	if isYT {
+		wailsRuntime.WindowSetMinSize(a.ctx, 520, 480)
+		wailsRuntime.WindowSetSize(a.ctx, 560, 520)
+	} else {
+		wailsRuntime.WindowSetMinSize(a.ctx, 460, 200)
+		wailsRuntime.WindowSetSize(a.ctx, 500, 220)
+	}
 	wailsRuntime.WindowCenter(a.ctx)
 	wailsRuntime.EventsEmit(a.ctx, "download:prompt_mode", map[string]any{
 		"standalone": true,
 		"data":       req,
+		"isYouTube":  isYT,
 	})
 	wailsRuntime.WindowShow(a.ctx)
 	wailsRuntime.WindowUnminimise(a.ctx)
@@ -594,4 +603,127 @@ func (a *App) DownloadUpdate(assetURL, filename string) (*models.Download, error
 		Filename: filename,
 		SaveDir:  a.GetDefaultDownloadDir(),
 	})
+}
+
+// IsYouTubeURL checks if the provided URL is a recognized YouTube video.
+func (a *App) IsYouTubeURL(rawURL string) bool {
+	return ytdl.IsYouTubeURL(rawURL)
+}
+
+// GetYouTubeMetadata fetches video info, thumbnail, and available resolution formats.
+func (a *App) GetYouTubeMetadata(rawURL string) (*ytdl.VideoMetadata, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return ytdl.FetchMetadata(ctx, rawURL)
+}
+
+// DownloadYouTubeVideo starts downloading the selected YouTube video format via yt-dlp.
+func (a *App) DownloadYouTubeVideo(rawURL, formatID, saveDir, filename string) error {
+	if saveDir == "" {
+		saveDir = a.GetDefaultDownloadDir()
+	}
+	_ = os.MkdirAll(saveDir, 0755)
+
+	if filename == "" {
+		filename = "youtube_download.mp4"
+	}
+	outPath := filepath.Join(saveDir, filename)
+
+	dlID := fmt.Sprintf("yt_%d", time.Now().UnixNano())
+	now := time.Now().UTC().Format(time.RFC3339)
+	dl := &models.Download{
+		ID:             dlID,
+		URL:            rawURL,
+		Filename:       filename,
+		SavePath:       outPath,
+		TotalSize:      0,
+		DownloadedSize: 0,
+		Status:         models.StatusDownloading,
+		TotalChunks:    1,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	if a.repo != nil {
+		_ = a.repo.InsertDownload(context.Background(), dl)
+	}
+	if a.broadcaster != nil {
+		a.broadcaster.Emit("download:status_change", dl)
+	}
+
+	go func() {
+		err := ytdl.DownloadVideo(context.Background(), rawURL, formatID, outPath, func(pct float64, spd, down, tot, eta int64) {
+			dl.DownloadedSize = down
+			if tot > 0 {
+				dl.TotalSize = tot
+			}
+			dl.Speed = spd
+			dl.ETA = eta
+			dl.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+			if a.repo != nil {
+				_ = a.repo.UpdateDownloadProgress(context.Background(), dl.ID, dl.DownloadedSize, dl.Speed, dl.ETA, dl.Status)
+			}
+			if a.broadcaster != nil {
+				a.broadcaster.Emit("download:progress", models.ProgressEvent{
+					DownloadID:     dl.ID,
+					DownloadedSize: dl.DownloadedSize,
+					TotalSize:      dl.TotalSize,
+					Progress:       pct,
+					Speed:          dl.Speed,
+					ETA:            dl.ETA,
+					Status:         dl.Status,
+				})
+			}
+		})
+
+		if err != nil {
+			dl.Status = models.StatusError
+			dl.ErrorMessage = err.Error()
+			dl.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			if a.repo != nil {
+				_ = a.repo.UpdateDownloadStatus(context.Background(), dl.ID, dl.Status, dl.ErrorMessage)
+			}
+			if a.broadcaster != nil {
+				a.broadcaster.Emit("download:status_change", dl)
+			}
+			if a.notifier != nil {
+				_ = a.notifier.Notify("Candak Download Failed", fmt.Sprintf("Failed: %s", filename))
+			}
+			return
+		}
+
+		if fi, statErr := os.Stat(outPath); statErr == nil {
+			dl.TotalSize = fi.Size()
+			dl.DownloadedSize = fi.Size()
+		}
+		dl.Status = models.StatusCompleted
+		dl.Speed = 0
+		dl.ETA = 0
+		dl.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+
+		if a.repo != nil {
+			_ = a.repo.UpdateDownloadProgress(context.Background(), dl.ID, dl.DownloadedSize, 0, 0, dl.Status)
+			_ = a.repo.UpdateDownloadStatus(context.Background(), dl.ID, dl.Status, "")
+		}
+		if a.broadcaster != nil {
+			a.broadcaster.Emit("download:status_change", dl)
+			a.broadcaster.Emit("download:progress", models.ProgressEvent{
+				DownloadID:     dl.ID,
+				DownloadedSize: dl.DownloadedSize,
+				TotalSize:      dl.TotalSize,
+				Progress:       100.0,
+				Speed:          0,
+				ETA:            0,
+				Status:         dl.Status,
+			})
+		}
+		if a.notifier != nil {
+			_ = a.notifier.Notify("Candak Download Complete", fmt.Sprintf("Finished: %s", filename))
+		}
+	}()
+
+	return nil
 }

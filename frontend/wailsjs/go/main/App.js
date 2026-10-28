@@ -149,3 +149,15 @@ export function ShowInFolder(arg1) {
 export function SuppressClipboardURL(arg1) {
   return window['go']['main']['App']['SuppressClipboardURL'](arg1);
 }
+
+export function IsYouTubeURL(arg1) {
+  return window['go']['main']['App']['IsYouTubeURL'](arg1);
+}
+
+export function GetYouTubeMetadata(arg1) {
+  return window['go']['main']['App']['GetYouTubeMetadata'](arg1);
+}
+
+export function DownloadYouTubeVideo(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['DownloadYouTubeVideo'](arg1, arg2, arg3, arg4);
+}
