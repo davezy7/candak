@@ -13,6 +13,8 @@
   const GAP = 8;
   const DEBOUNCE_MS = 200;
   const EDGE_PAD = 4;
+  const PENDING_POLL_MS = 400;
+  const PENDING_TIMEOUT_MS = 15000;
 
   // --- Settings ------------------------------------------------------------
   let settings = { overlayEnabled: true, excludedSites: [] };
@@ -222,7 +224,7 @@
     }
     targetVideo = v;
     manualOffset = null;
-    pendingGrab = null;
+    stopPendingGrab(false);
     variants = [];
     unbuffered = [];
     ensureUI();
@@ -238,7 +240,7 @@
   function detach() {
     stopTracking();
     targetVideo = null;
-    pendingGrab = null;
+    stopPendingGrab(false);
     if (pill) {
       pill.classList.remove("on");
       closeMenu();
@@ -411,7 +413,7 @@
       const li = document.createElement("li");
       li.className = "pending";
       const suffix = !m.isAudio && !m.hasAudio ? " (video-only)" : "";
-      li.innerHTML = `${m.label}${suffix} <span class="tracks">click to buffer</span>`;
+      li.innerHTML = `${m.label}${suffix} <span class="tracks">fetch &amp; download</span>`;
       li.addEventListener("click", (e) => {
         e.stopPropagation();
         closeMenu();
@@ -454,9 +456,58 @@
     // the metadata entry clicked (e.g. VP9 instead of AVC), so the pending grab
     // is matched by resolution, with the itag kept as a metadata-free fallback.
     pendingGrab = { itag: meta.itag, height: meta.height, label: `${meta.label}${suffix}` };
-    // The target quality may already sit in the sniffer registry (buffered
-    // earlier in the session) — grab immediately instead of waiting for a refetch.
-    onStreamsUpdated();
+    if (grabLabelEl) grabLabelEl.textContent = `Fetching ${meta.label}…`;
+    scheduleSync(); // Label width changes the pill size
+    pollPendingGrab();
+  }
+
+  // --- Pending quality grab: poll the sniffer until the switched-to resolution
+  // is intercepted, then hand it to Candak automatically. Polling makes the
+  // handoff independent of any single background nudge arriving.
+  let pendingPoll = null;
+
+  function stopPendingGrab(restore) {
+    pendingGrab = null;
+    if (pendingPoll) { clearInterval(pendingPoll); pendingPoll = null; }
+    if (restore) {
+      if (grabLabelEl) grabLabelEl.textContent = variants.length > 1 ? "Download video ▾" : "Download video";
+      scheduleSync();
+      // Return the player to the quality it was on before the fetch
+      window.postMessage({ source: "candak-content", cmd: "restore" }, location.origin);
+    }
+  }
+
+  async function tryPendingGrab() {
+    if (!pendingGrab) return false;
+    const streams = await queryStreams();
+    const ytMeta = collectYouTubeMeta();
+    const s = streams.find((x) => {
+      if (!x.itag) return false;
+      const m = ytMeta && ytMeta.get(String(x.itag));
+      if (m) return !m.isAudio && pendingGrab.height > 0 && m.height === pendingGrab.height;
+      return String(x.itag) === pendingGrab.itag;
+    });
+    if (!s) return false;
+    const p = pendingGrab;
+    stopPendingGrab(true); // Grab fired: restore the label and playback quality
+    grabVariant({ label: p.label, url: s.url, ext: extFromMime(s.mimeType) });
+    return true;
+  }
+
+  function pollPendingGrab() {
+    if (pendingPoll) clearInterval(pendingPoll);
+    let waited = 0;
+    const tick = async () => {
+      if (!pendingGrab) { stopPendingGrab(false); return; }
+      if (await tryPendingGrab()) return;
+      waited += PENDING_POLL_MS;
+      if (waited >= PENDING_TIMEOUT_MS) {
+        console.warn("[Candak] Timed out fetching", pendingGrab.label);
+        stopPendingGrab(true);
+      }
+    };
+    tick(); // Pre-buffered qualities may already sit in the sniffer registry
+    pendingPoll = setInterval(tick, PENDING_POLL_MS);
   }
 
   function sanitizeTitle(title) {
@@ -489,24 +540,10 @@
   async function onStreamsUpdated() {
     if (!targetVideo || !pill || !pill.classList.contains("on")) return;
     if (pendingGrab) {
-      const streams = await queryStreams();
-      // Match the newly sniffed stream by resolution via metadata (codec-agnostic);
-      // fall back to the exact itag when metadata is unavailable.
-      const ytMeta = collectYouTubeMeta();
-      const s = streams.find((x) => {
-        if (!x.itag) return false;
-        const m = ytMeta && ytMeta.get(String(x.itag));
-        if (m) return !m.isAudio && pendingGrab.height > 0 && m.height === pendingGrab.height;
-        return String(x.itag) === pendingGrab.itag;
-      });
-      if (s) {
-        const p = pendingGrab;
-        pendingGrab = null;
-        grabVariant({ label: p.label, url: s.url, ext: extFromMime(s.mimeType) });
-      }
-    } else {
-      loadVariants();
+      await tryPendingGrab(); // The poll retries too; keep the menu frozen while pending
+      return;
     }
+    loadVariants();
   }
 
   // --- Docking, flipping and GPU-composited tracking ----------------------------

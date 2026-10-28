@@ -39,6 +39,8 @@
     if (formats) window.postMessage({ source: "candak-page", formats }, window.location.origin);
   };
 
+  let prevQuality = null; // Quality the player was on before a fetch-and-download switch
+
   window.addEventListener("yt-navigate-finish", post);
   window.addEventListener("message", (e) => {
     if (e.source !== window || !e.data || e.data.source !== "candak-content") return;
@@ -47,6 +49,10 @@
       try {
         const p = document.getElementById("movie_player");
         if (p && typeof p.setPlaybackQualityRange === "function") {
+          if (!prevQuality && typeof p.getPlaybackQuality === "function") {
+            const q = p.getPlaybackQuality();
+            if (q && q !== "unknown") prevQuality = q;
+          }
           p.setPlaybackQualityRange(e.data.quality, e.data.quality);
           // A full buffer can defer the switch indefinitely; a same-position
           // seek flushes it and forces an immediate fetch of the new quality
@@ -56,6 +62,15 @@
           }
         }
       } catch (err) { /* Player refused the switch */ }
+    }
+    if (e.data.cmd === "restore" && prevQuality) {
+      try {
+        const p = document.getElementById("movie_player");
+        if (p && typeof p.setPlaybackQualityRange === "function") {
+          p.setPlaybackQualityRange(prevQuality, prevQuality);
+        }
+      } catch (err) { /* Player refused the restore */ }
+      prevQuality = null;
     }
   });
   post();
