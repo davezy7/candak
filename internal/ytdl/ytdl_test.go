@@ -51,3 +51,14 @@ func TestCleanVideoTitle(t *testing.T) {
 		t.Errorf("expected fallback for empty title")
 	}
 }
+
+func TestFetchMetadata(t *testing.T) {
+	meta, err := FetchMetadata(t.Context(), "https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+	if err != nil {
+		t.Fatalf("FetchMetadata failed: %v", err)
+	}
+	t.Logf("Video title: %s", meta.Title)
+	for _, opt := range meta.Options {
+		t.Logf("Option: %s, size: %d, id: %s", opt.Resolution, opt.Filesize, opt.FormatID)
+	}
+}

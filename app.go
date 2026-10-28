@@ -692,6 +692,9 @@ func (a *App) startYouTubeTask(dl *models.Download, t *ytTask) {
 			dl.DownloadedSize = down
 			if tot > 0 && dl.TotalSize <= 0 {
 				dl.TotalSize = tot
+				if a.repo != nil {
+					_ = a.repo.UpdateDownloadTotalSize(context.Background(), dl.ID, tot)
+				}
 			}
 			dl.Speed = spd
 			dl.ETA = eta
@@ -829,10 +832,25 @@ func (a *App) resumeYouTubeDownload(id string) error {
 	a.ytMu.Unlock()
 
 	dl.Status = models.StatusDownloading
+	dl.Speed = 0
+	dl.ETA = 0
 	dl.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 	_ = a.repo.UpdateDownloadStatus(ctx, id, models.StatusDownloading, "")
 	if a.broadcaster != nil {
 		a.broadcaster.Emit("download:status_change", dl)
+		prog := float64(0)
+		if dl.TotalSize > 0 {
+			prog = float64(dl.DownloadedSize) / float64(dl.TotalSize) * 100.0
+		}
+		a.broadcaster.Emit("download:progress", models.ProgressEvent{
+			DownloadID:     dl.ID,
+			DownloadedSize: dl.DownloadedSize,
+			TotalSize:      dl.TotalSize,
+			Progress:       prog,
+			Speed:          0,
+			ETA:            0,
+			Status:         dl.Status,
+		})
 	}
 
 	a.startYouTubeTask(dl, t)

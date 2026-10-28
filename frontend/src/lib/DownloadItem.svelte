@@ -293,6 +293,9 @@
             {#if download.speed > 0}
               <span>·</span>
               <span class="text-[var(--color-text)] font-semibold">{formatSpeed(download.speed)}</span>
+            {:else}
+              <span>·</span>
+              <span class="text-[var(--color-accent)] animate-pulse font-medium">Connecting...</span>
             {/if}
             {#if download.eta > 0}
               <span>·</span>

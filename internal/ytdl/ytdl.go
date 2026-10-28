@@ -219,12 +219,27 @@ func FetchMetadata(ctx context.Context, rawURL string) (*VideoMetadata, error) {
 		if sz <= 0 {
 			sz = f.FilesizeA
 		}
+		if sz <= 0 && f.Tbr > 0 && raw.Duration > 0 {
+			sz = int64((f.Tbr * 1000 / 8) * float64(raw.Duration))
+		}
 
 		hasAudio := f.ACodec != "none" && f.ACodec != ""
 		formatSelector := f.FormatID
 		if !hasAudio {
 			// Auto-merge with best audio
 			formatSelector = fmt.Sprintf("%s+bestaudio/best", f.FormatID)
+			if bestAudio != nil {
+				audioSz := bestAudio.Filesize
+				if audioSz <= 0 {
+					audioSz = bestAudio.FilesizeA
+				}
+				if audioSz <= 0 && bestAudio.Tbr > 0 && raw.Duration > 0 {
+					audioSz = int64((bestAudio.Tbr * 1000 / 8) * float64(raw.Duration))
+				}
+				if audioSz > 0 {
+					sz += audioSz
+				}
+			}
 		}
 
 		options = append(options, FormatOption{
@@ -243,6 +258,9 @@ func FetchMetadata(ctx context.Context, rawURL string) (*VideoMetadata, error) {
 		sz := bestAudio.Filesize
 		if sz <= 0 {
 			sz = bestAudio.FilesizeA
+		}
+		if sz <= 0 && bestAudio.Tbr > 0 && raw.Duration > 0 {
+			sz = int64((bestAudio.Tbr * 1000 / 8) * float64(raw.Duration))
 		}
 		options = append(options, FormatOption{
 			FormatID:   bestAudio.FormatID,
@@ -356,6 +374,11 @@ func DownloadVideo(ctx context.Context, rawURL, formatID, outPath string, onProg
 
 				// eta
 				eta, _ := strconv.ParseInt(parts[5], 10, 64)
+
+				// if total was unknown (NA/0) but percent and downloaded bytes exist
+				if tot <= 0 && pct > 0 && down > 0 {
+					tot = int64(float64(down) / (pct / 100.0))
+				}
 
 				onProgress(pct, spd, down, tot, eta)
 			}

@@ -178,6 +178,16 @@ func (s *Storage) UpdateDownloadProgress(ctx context.Context, id string, downloa
 	return err
 }
 
+// UpdateDownloadTotalSize updates total size when calculated post-init.
+func (s *Storage) UpdateDownloadTotalSize(ctx context.Context, id string, totalSize int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	query := `UPDATE downloads SET total_size = ? WHERE id = ? AND total_size <= 0`
+	_, err := s.db.ExecContext(ctx, query, totalSize, id)
+	return err
+}
+
 // UpdateDownloadStatus updates the download's operational status and error text.
 func (s *Storage) UpdateDownloadStatus(ctx context.Context, id string, status models.DownloadStatus, errMsg string) error {
 	s.mu.Lock()

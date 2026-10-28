@@ -68,6 +68,7 @@
       if (idx !== -1) {
         downloads[idx] = {
           ...downloads[idx],
+          totalSize: evt.totalSize > 0 ? evt.totalSize : downloads[idx].totalSize,
           downloadedSize: evt.downloadedSize,
           speed: evt.speed,
           eta: evt.eta,
