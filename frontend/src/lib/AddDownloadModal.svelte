@@ -60,6 +60,7 @@
 
   // YouTube Dedicated Mode State
   const YT_REGEX = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?.*v=|shorts\/|live\/)|youtu\.be\/)[a-zA-Z0-9_-]+/i;
+  const HLS_REGEX = /\.m3u8($|\?)/i;
   let isYouTube = false;
   let isAnalyzingYT = false;
   let ytMeta = null;
@@ -68,6 +69,10 @@
 
   function isYouTubeLink(raw) {
     return raw ? YT_REGEX.test(raw.trim()) : false;
+  }
+
+  function isHlsLink(raw) {
+    return raw ? HLS_REGEX.test(raw.trim()) : false;
   }
 
   async function fetchYouTubeDetails(targetUrl) {
@@ -493,6 +498,25 @@
     probeError = '';
     probeResult = null;
 
+    if (isHlsLink(target)) {
+      isProbing = false;
+      if (!filename || filename.endsWith('.m3u8')) {
+        try {
+          const parsed = new URL(target);
+          const base = parsed.pathname.split('/').filter(Boolean).pop() || 'video';
+          filename = base.replace(/\.m3u8$/i, '') + '.mp4';
+        } catch (_) {
+          filename = 'video.mp4';
+        }
+      }
+      probeResult = {
+        filename: filename,
+        totalSize: 0,
+        resumable: true
+      };
+      return;
+    }
+
     try {
       let res;
       if (headers && Object.keys(headers).length > 0) {
@@ -552,6 +576,31 @@
   async function handleSubmit() {
     if (!url.trim()) return;
     if (isProbing) return; // Wait for size calculation to finish first
+
+    if (isHlsLink(url)) {
+      isSubmitting = true;
+      try {
+        let finalName = filename.trim();
+        if (!finalName) {
+          finalName = 'video.mp4';
+        } else if (finalName.endsWith('.m3u8')) {
+          finalName = finalName.replace(/\.m3u8$/i, '.mp4');
+        } else if (!finalName.endsWith('.mp4')) {
+          finalName = finalName + '.mp4';
+        }
+        await DownloadYouTubeVideo(url.trim(), 'best', saveDir, finalName, 0);
+        if (isStandalone) {
+          await ClosePromptWindow(true, finalName, 0);
+        }
+        onAdded();
+        handleClose();
+      } catch (err) {
+        probeError = String(err);
+      } finally {
+        isSubmitting = false;
+      }
+      return;
+    }
 
     if (!checkAcceptedExtension(filename || probeResult?.filename || url)) {
       return;

@@ -260,21 +260,46 @@ function classifyHlsTracks(codecs, audioGroup) {
   return "(Video + Audio)";
 }
 
+function detectHlsDrm(lines) {
+  for (const l of lines) {
+    if (!l.startsWith("#EXT-X-KEY") && !l.startsWith("#EXT-X-SESSION-KEY")) continue;
+    const lower = l.toLowerCase();
+    if (lower.includes("method=none")) continue;
+    if (
+      lower.includes("sample-aes") ||
+      lower.includes("com.widevine") ||
+      lower.includes("com.microsoft.playready") ||
+      lower.includes("com.apple.fps") ||
+      lower.includes("streamingkeydelivery") ||
+      lower.includes("edef8ba9-79d6-4ace-a3c8-27dcd51d21ed") ||
+      lower.includes("9a04f079-9840-4286-ab92-e65be0885f95") ||
+      lower.includes("cenc") ||
+      lower.includes("cbcs")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 async function parseHlsMasterPlaylist(manifestUrl) {
   const res = await fetch(manifestUrl);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const text = await res.text();
   const lines = text.split("\n").map(l => l.trim());
+  const isDrm = detectHlsDrm(lines);
 
   if (!lines.some(l => l.startsWith("#EXT-X-STREAM-INF"))) {
     // Media playlist (single rendition), not a master playlist
-    return [{
+    const single = [{
       label: null,
       url: manifestUrl,
       bandwidth: null,
       codecs: "",
       tracks: "(Video + Audio)"
     }];
+    single.isDrm = isDrm;
+    return single;
   }
 
   const variants = [];
@@ -292,6 +317,7 @@ async function parseHlsMasterPlaylist(manifestUrl) {
       tracks: classifyHlsTracks(attrs["CODECS"], attrs["AUDIO"])
     });
   }
+  variants.isDrm = isDrm;
   return variants;
 }
 
@@ -363,7 +389,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === "candak:parseHLS") {
     parseHlsMasterPlaylist(msg.url)
-      .then(variants => sendResponse({ variants }))
+      .then(variants => sendResponse({ variants, isDrm: !!variants.isDrm }))
       .catch(err => sendResponse({ error: String(err) }));
     return true; // Async response
   }

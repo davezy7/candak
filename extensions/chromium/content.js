@@ -136,6 +136,7 @@
     }
 
     root.querySelector(".grab").addEventListener("click", () => {
+      if (isDrm) return;
       if (IS_YOUTUBE) {
         grabYouTubeVideo();
         return;
@@ -144,6 +145,7 @@
     });
 
     caretEl.addEventListener("click", (e) => {
+      if (isDrm) return;
       e.stopPropagation();
       menuOpen ? closeMenu() : openMenu();
     });
@@ -272,6 +274,15 @@
     return `${v >= 100 ? v.toFixed(0) : v.toFixed(1)} ${units[i]}`;
   }
 
+  let isDrm = false;
+
+  function hasDrmProtection(v) {
+    if (!v) return false;
+    if (v.mediaKeys !== null && v.mediaKeys !== undefined) return true;
+    if (v.getAttribute && (v.getAttribute("data-key-system") || v.getAttribute("keysystem"))) return true;
+    return false;
+  }
+
   async function loadVariants() {
     const v = targetVideo;
     if (!v) return;
@@ -283,6 +294,7 @@
       return;
     }
 
+    let hasDrm = hasDrmProtection(v);
     const streams = await queryStreams();
     if (targetVideo !== v) return;
 
@@ -293,27 +305,66 @@
         try {
           const res = await chrome.runtime.sendMessage({ type: "candak:parseHLS", url: s.url });
           if (targetVideo !== v) return;
+          if (res && res.isDrm) {
+            hasDrm = true;
+          }
           if (res && res.variants) {
             for (const hv of res.variants) {
+              const hLabel = hv.label || (v.videoHeight > 0 ? `${v.videoHeight}p` : "");
               variants.push({
-                label: hv.label || (hv.bandwidth ? `${(hv.bandwidth / 1e6).toFixed(1)} Mbps` : "Original"),
+                label: hLabel || (hv.bandwidth ? `${(hv.bandwidth / 1e6).toFixed(1)} Mbps` : "Auto Quality"),
                 url: hv.url,
-                ext: "m3u8",
+                ext: "mp4",
                 tracks: hv.tracks
               });
             }
           }
         } catch (_) {}
       } else {
-        const src = v.currentSrc || v.src || "";
-        const h = src && s.url === src && v.videoHeight > 0 ? `${v.videoHeight}p` : "";
+        let label = "";
+        if (v.videoHeight > 0) {
+          label = `${v.videoHeight}p`;
+        }
+        if (!label) {
+          const ext = extFromMime(s.mimeType) || extFromUrl(s.url);
+          label = ext ? `${ext.toUpperCase()} Video` : "Video Stream";
+        }
         variants.push({
-          label: h || "Original",
+          label,
           size: formatSize(s.sizeBytes),
           url: s.url,
           ext: extFromMime(s.mimeType) || extFromUrl(s.url)
         });
       }
+    }
+
+    isDrm = hasDrm;
+    const btn = root && root.querySelector(".grab");
+    if (isDrm) {
+      variants = [];
+      if (btn) {
+        btn.disabled = true;
+        btn.style.opacity = "0.55";
+        btn.style.cursor = "not-allowed";
+        btn.title = "This stream is DRM-protected and cannot be downloaded.";
+      }
+      if (grabLabelEl) {
+        grabLabelEl.textContent = "🔒 DRM Protected";
+      }
+      if (caretEl) caretEl.style.display = "none";
+      closeMenu();
+      scheduleSync();
+      return;
+    }
+
+    if (btn) {
+      btn.disabled = false;
+      btn.style.opacity = "1";
+      btn.style.cursor = "pointer";
+      btn.title = "";
+    }
+    if (caretEl && !IS_YOUTUBE) {
+      caretEl.style.display = variants.length > 1 ? "" : "none";
     }
 
     if (targetVideo === v) renderMenu();

@@ -109,3 +109,25 @@ test("grab relay strips chunk range param cleanly and forwards headers", async (
   assert.equal(captured.body.headers["User-Agent"], "Mozilla/5.0 Test");
   assert.equal(captured.body.headers["Origin"], "https://www.youtube.com");
 });
+
+test("parseHlsMasterPlaylist detects DRM protection flags", async () => {
+  const drmManifest = [
+    "#EXTM3U",
+    "#EXT-X-VERSION:5",
+    "#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"skd://fairplay.example.com\",KEYFORMAT=\"com.apple.streamingkeydelivery\"",
+    "#EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=1920x1080",
+    "video.m3u8"
+  ].join("\n");
+  const ctx = loadBackground(drmManifest);
+  const variants = await ctx.parseHlsMasterPlaylist("https://cdn.example.com/master.m3u8");
+  assert.equal(variants.isDrm, true);
+
+  const clearManifest = [
+    "#EXTM3U",
+    "#EXT-X-STREAM-INF:BANDWIDTH=4000000,RESOLUTION=1920x1080",
+    "video.m3u8"
+  ].join("\n");
+  const ctxClear = loadBackground(clearManifest);
+  const clearVariants = await ctxClear.parseHlsMasterPlaylist("https://cdn.example.com/master.m3u8");
+  assert.equal(clearVariants.isDrm, false);
+});
