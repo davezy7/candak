@@ -35,9 +35,12 @@
 
   // --- YouTube page-world bridge ------------------------------------------------
   // Isolated content-script worlds cannot see page globals (ytInitialPlayerResponse,
-  // movie_player methods), so a tiny bridge is injected inline into the page world
-  // on YouTube frames. Formats flow back and quality-switch commands flow forward
-  // via window.postMessage. Pages whose CSP refuses inline scripts simply skip it.
+  // movie_player methods). On Chromium the page-bridge.js MAIN-world content script
+  // handles this; this inline injection is the fallback for engines without
+  // world:"MAIN" support (Firefox) or CSP-lenient pages. YouTube's Trusted Types
+  // policy blocks it there, which is fine — page-bridge.js is already active and
+  // both set the same window.__candakPageBridge guard, so only one bridge ever runs.
+  // Formats flow back and quality-switch commands flow forward via window.postMessage.
   let ytFormats = null; // Slim format list last relayed by the bridge
 
   function injectPageBridge() {
