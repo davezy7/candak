@@ -41,6 +41,35 @@
 
   let prevQuality = null; // Quality the player was on before a fetch-and-download switch
 
+  function triggerQualityMenuSwitch(targetText) {
+    if (!targetText) return;
+    const gear = document.querySelector(".ytp-settings-button");
+    if (!gear) return;
+    gear.click();
+    setTimeout(() => {
+      const items = Array.from(document.querySelectorAll(".ytp-menuitem"));
+      const qualityItem = items.find(it => /quality|kualitas|qualit/i.test(it.textContent));
+      if (qualityItem) {
+        qualityItem.click();
+        setTimeout(() => {
+          const opts = Array.from(document.querySelectorAll(".ytp-quality-menu .ytp-menuitem, .ytp-panel-menu .ytp-menuitem"));
+          const cleanTarget = targetText.toLowerCase().replace(/[^0-9p]/g, "");
+          const target = opts.find(o => {
+            const t = o.textContent.toLowerCase();
+            return t.includes(cleanTarget) || (cleanTarget.includes("p") && t.includes(cleanTarget.split("p")[0] + "p"));
+          });
+          if (target) {
+            target.click();
+          } else {
+            gear.click();
+          }
+        }, 50);
+      } else {
+        gear.click();
+      }
+    }, 50);
+  }
+
   window.addEventListener("yt-navigate-finish", post);
   window.addEventListener("message", (e) => {
     if (e.source !== window || !e.data || e.data.source !== "candak-content") return;
@@ -67,6 +96,12 @@
           }
         }
       } catch (err) { /* Player refused the switch */ }
+
+      // UI automation fallback: modern YouTube often ignores setPlaybackQuality
+      // unless chosen through the player's quality menu
+      try {
+        triggerQualityMenuSwitch(e.data.label || e.data.quality);
+      } catch (_) {}
     }
     if (e.data.cmd === "restore" && prevQuality) {
       try {

@@ -399,15 +399,12 @@
   }
 
   // --- Default grab target ----------------------------------------------------
-  // The main button grabs the highest resolution across buffered and unbuffered
-  // entries (both sorted descending); generic sites fall back to the first
-  // sniffed stream.
+  // The main button defaults to the highest buffered (ready) stream so clicking
+  // it grabs instantly with zero delay. If nothing is buffered yet, it falls back
+  // to the highest metadata quality.
   function defaultEntry() {
-    const a = variants[0];
-    const b = unbuffered[0];
-    if (!a) return b || null;
-    if (!b) return a;
-    return (b.height || 0) > (a.height || 0) ? b : a;
+    if (variants.length > 0) return variants[0];
+    return unbuffered[0] || null;
   }
 
   function grabButtonLabel() {
@@ -475,7 +472,12 @@
 
   function requestQuality(meta) {
     // The player API lives in the page world; the bridge relays the switch
-    window.postMessage({ source: "candak-content", cmd: "quality", quality: qualityName(meta.height) }, location.origin);
+    window.postMessage({
+      source: "candak-content",
+      cmd: "quality",
+      quality: qualityName(meta.height),
+      label: meta.label
+    }, location.origin);
     const suffix = !meta.isAudio && !meta.hasAudio ? " (video-only)" : "";
     // The player may answer the quality request with a different codec itag than
     // the metadata entry clicked (e.g. VP9 instead of AVC), so the pending grab
@@ -532,6 +534,11 @@
       if (waited >= PENDING_TIMEOUT_MS) {
         console.warn("[Candak] Timed out fetching", pendingGrab.label);
         stopPendingGrab(true);
+        // Fallback: if quality switch was blocked or timed out, grab the best
+        // buffered stream already available so the user still gets a download.
+        if (variants.length > 0) {
+          grabVariant(variants[0]);
+        }
       }
     };
     tick(); // Pre-buffered qualities may already sit in the sniffer registry
