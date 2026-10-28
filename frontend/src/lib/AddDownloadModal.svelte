@@ -110,7 +110,7 @@
     isSubmitting = true;
     try {
       const finalName = filename || (ytMeta ? ytMeta.title + '.mp4' : 'youtube_download.mp4');
-      await DownloadYouTubeVideo(url.trim(), selectedYTFormat.format_id, saveDir, finalName);
+      await DownloadYouTubeVideo(url.trim(), selectedYTFormat.format_id, saveDir, finalName, selectedYTFormat.filesize || 0);
       if (isStandalone) {
         await ClosePromptWindow(true, finalName, selectedYTFormat.filesize || 0);
       }

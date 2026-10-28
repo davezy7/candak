@@ -291,6 +291,7 @@ func DownloadVideo(ctx context.Context, rawURL, formatID, outPath string, onProg
 
 	args := []string{
 		"--no-playlist",
+		"-c",
 		"-f", formatID,
 		"--newline",
 		"--progress-template", "candak:%(progress._percent_str)s:%(progress.downloaded_bytes)s:%(progress.total_bytes_estimate)s:%(progress.speed)s:%(progress.eta)s",
