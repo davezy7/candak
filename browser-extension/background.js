@@ -106,18 +106,23 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
 // ---------------------------------------------------------------------------
 
 const streamRegistry = new Map(); // tabId -> Map(url -> stream entry)
+const recentStreams = new Map(); // Global FIFO buffer for worker/prerender requests where tabId < 0
+const MAX_RECENT_STREAMS = 60;
 
 function isMediaUrl(url) {
   try {
-    const path = new URL(url).pathname.toLowerCase();
-    return /\.(mp4|m3u8|webm)$/.test(path);
+    const u = new URL(url);
+    const path = u.pathname.toLowerCase();
+    if (/\.(mp4|m3u8|webm|ts|m4s)$/.test(path)) return true;
+    if (path.includes("videoplayback") || (u.hostname.includes("googlevideo.com") && u.searchParams.has("itag"))) return true;
+    return false;
   } catch (err) {
     return false;
   }
 }
 
 function isMediaMime(mime) {
-  return /^video\//i.test(mime) ||
+  return /^(video|audio)\//i.test(mime) ||
     /^application\/vnd\.apple\.mpegurl$/i.test(mime) ||
     /^application\/dash\+xml$/i.test(mime);
 }
@@ -148,23 +153,41 @@ function extractSizeBytes(responseHeaders) {
 }
 
 function registerStream(tabId, entry) {
-  let perTab = streamRegistry.get(tabId);
-  if (!perTab) {
-    perTab = new Map();
-    streamRegistry.set(tabId, perTab);
+  if (tabId >= 0) {
+    let perTab = streamRegistry.get(tabId);
+    if (!perTab) {
+      perTab = new Map();
+      streamRegistry.set(tabId, perTab);
+    }
+    perTab.set(entry.url, entry);
+    // Fire-and-forget nudge so the overlay can refresh or finish a pending grab
+    chrome.tabs.sendMessage(tabId, { type: "candak:streamsUpdated" }).catch(() => {});
   }
-  perTab.set(entry.url, entry);
-  // Fire-and-forget nudge so the overlay can refresh or finish a pending grab
-  chrome.tabs.sendMessage(tabId, { type: "candak:streamsUpdated" }).catch(() => {});
+  // Also buffer in recentStreams to catch requests from service workers or pre-navigation
+  if (recentStreams.size >= MAX_RECENT_STREAMS) {
+    const oldestKey = recentStreams.keys().next().value;
+    recentStreams.delete(oldestKey);
+  }
+  recentStreams.set(entry.url, entry);
+}
+
+const onHeadersReceivedSpec = ["responseHeaders"];
+if (typeof browser === "undefined" && typeof chrome !== "undefined") {
+  // Chromium requires extraHeaders to inspect Content-Type / Content-Range
+  onHeadersReceivedSpec.push("extraHeaders");
 }
 
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
-    if (details.tabId < 0) return; // No originating tab (service worker, prerender)
     const mimeHeader = (details.responseHeaders || []).find(
       h => h.name.toLowerCase() === "content-type"
     );
-    const mimeType = mimeHeader ? mimeHeader.value.split(";")[0].trim() : "";
+    let mimeType = mimeHeader ? mimeHeader.value.split(";")[0].trim() : "";
+    if (!mimeType && isMediaUrl(details.url)) {
+      if (details.url.includes("googlevideo.com") || details.url.includes("videoplayback")) {
+        mimeType = "video/mp4";
+      }
+    }
     if (!isMediaMime(mimeType) && !isMediaUrl(details.url)) return;
 
     registerStream(details.tabId, {
@@ -177,7 +200,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     });
   },
   { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"] },
-  ["responseHeaders"]
+  onHeadersReceivedSpec
 );
 
 // Prune tab-scoped registries when tabs close or navigate away
@@ -193,7 +216,7 @@ function findStreamEntry(url) {
     const entry = perTab.get(url);
     if (entry) return entry;
   }
-  return null;
+  return recentStreams.get(url) || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +331,19 @@ async function handleGrabRelay(payload) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "candak:getStreams") {
     const perTab = streamRegistry.get(sender.tab ? sender.tab.id : -1);
-    sendResponse({ streams: perTab ? [...perTab.values()] : [] });
+    const map = new Map();
+    if (perTab) {
+      for (const [url, entry] of perTab.entries()) {
+        map.set(url, entry);
+      }
+    }
+    // Supplement with recentStreams for worker/prerender requests
+    for (const [url, entry] of recentStreams.entries()) {
+      if (!map.has(url)) {
+        map.set(url, entry);
+      }
+    }
+    sendResponse({ streams: [...map.values()] });
     return false;
   }
   if (msg.type === "candak:parseHLS") {

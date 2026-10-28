@@ -48,12 +48,17 @@
     if (e.data.cmd === "quality" && e.data.quality) {
       try {
         const p = document.getElementById("movie_player");
-        if (p && typeof p.setPlaybackQualityRange === "function") {
+        if (p) {
           if (!prevQuality && typeof p.getPlaybackQuality === "function") {
             const q = p.getPlaybackQuality();
             if (q && q !== "unknown") prevQuality = q;
           }
-          p.setPlaybackQualityRange(e.data.quality, e.data.quality);
+          if (typeof p.setPlaybackQualityRange === "function") {
+            p.setPlaybackQualityRange(e.data.quality, e.data.quality);
+          }
+          if (typeof p.setPlaybackQuality === "function") {
+            p.setPlaybackQuality(e.data.quality);
+          }
           // A full buffer can defer the switch indefinitely; a same-position
           // seek flushes it and forces an immediate fetch of the new quality
           // so the sniffer can intercept it.
@@ -66,8 +71,13 @@
     if (e.data.cmd === "restore" && prevQuality) {
       try {
         const p = document.getElementById("movie_player");
-        if (p && typeof p.setPlaybackQualityRange === "function") {
-          p.setPlaybackQualityRange(prevQuality, prevQuality);
+        if (p) {
+          if (typeof p.setPlaybackQualityRange === "function") {
+            p.setPlaybackQualityRange(prevQuality, prevQuality);
+          }
+          if (typeof p.setPlaybackQuality === "function") {
+            p.setPlaybackQuality(prevQuality);
+          }
         }
       } catch (err) { /* Player refused the restore */ }
       prevQuality = null;

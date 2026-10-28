@@ -74,11 +74,13 @@ test("parseHlsMasterPlaylist treats a media playlist as a single variant", async
 test("media detection helpers classify MIME, extensions, itag and sizes", () => {
   const ctx = loadBackground("");
   assert.equal(ctx.isMediaMime("video/mp4"), true);
+  assert.equal(ctx.isMediaMime("audio/webm"), true);
   assert.equal(ctx.isMediaMime("application/vnd.apple.mpegurl"), true);
   assert.equal(ctx.isMediaMime("application/dash+xml"), true);
   assert.equal(ctx.isMediaMime("text/html"), false);
   assert.equal(ctx.isMediaUrl("https://x.com/a/b.MP4?token=1"), true);
   assert.equal(ctx.isMediaUrl("https://x.com/a/b.m3u8"), true);
+  assert.equal(ctx.isMediaUrl("https://r4---sn.googlevideo.com/videoplayback?itag=137&id=o-A"), true);
   assert.equal(ctx.isMediaUrl("https://x.com/a/b.html"), false);
   assert.equal(ctx.extractItag("https://r4---sn.googlevideo.com/videoplayback?itag=137&id=o-A"), "137");
   assert.equal(ctx.extractItag("https://x.com/video.mp4"), null);

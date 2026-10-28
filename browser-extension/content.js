@@ -480,7 +480,7 @@
     // The player may answer the quality request with a different codec itag than
     // the metadata entry clicked (e.g. VP9 instead of AVC), so the pending grab
     // is matched by resolution, with the itag kept as a metadata-free fallback.
-    pendingGrab = { itag: meta.itag, height: meta.height, label: `${meta.label}${suffix}` };
+    pendingGrab = { itag: meta.itag, height: meta.height, isAudio: !!meta.isAudio, label: `${meta.label}${suffix}` };
     if (grabLabelEl) grabLabelEl.textContent = `Fetching ${meta.label}…`;
     scheduleSync(); // Label width changes the pill size
     pollPendingGrab();
@@ -509,7 +509,10 @@
     const s = streams.find((x) => {
       if (!x.itag) return false;
       const m = ytMeta && ytMeta.get(String(x.itag));
-      if (m) return !m.isAudio && pendingGrab.height > 0 && m.height === pendingGrab.height;
+      if (m) {
+        if (pendingGrab.isAudio) return m.isAudio;
+        return !m.isAudio && pendingGrab.height > 0 && m.height === pendingGrab.height;
+      }
       return String(x.itag) === pendingGrab.itag;
     });
     if (!s) return false;
