@@ -94,9 +94,9 @@ test("media detection helpers classify MIME, extensions, itag and sizes", () => 
   );
 });
 
-test("grab relay forwards the sniffed URL untouched and sets a full-range header", async () => {
+test("grab relay strips chunk range param cleanly and forwards headers", async () => {
   const ctx = loadBackground("");
-  const chunkUrl = "https://rr3.googlevideo.com/videoplayback?itag=137&range=0-1048575&expire=999&sig=abc";
+  const chunkUrl = "https://rr3.googlevideo.com/videoplayback?itag=137&range=0-1048575&sparams=expire,ei,ip&sig=abc";
   ctx.registerStream(1, { url: chunkUrl, mimeType: "video/mp4", sizeBytes: 104857600, itag: "137" });
   let captured = null;
   ctx.fetch = async (url, opts) => {
@@ -105,8 +105,7 @@ test("grab relay forwards the sniffed URL untouched and sets a full-range header
   };
   await ctx.handleGrabRelay({ url: chunkUrl, filename: "v.mp4", headers: { "User-Agent": "Mozilla/5.0 Test" } });
   assert.equal(captured.url, "http://127.0.0.1:41920/api/grab");
-  assert.equal(captured.body.url, chunkUrl, "URL must be forwarded byte-for-byte (tampering risks 403)");
-  assert.equal(captured.body.headers["Range"], "bytes=0-104857599");
+  assert.equal(captured.body.url, "https://rr3.googlevideo.com/videoplayback?itag=137&sparams=expire,ei,ip&sig=abc");
   assert.equal(captured.body.headers["User-Agent"], "Mozilla/5.0 Test");
   assert.equal(captured.body.headers["Origin"], "https://www.youtube.com");
 });

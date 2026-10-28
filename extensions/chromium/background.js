@@ -300,6 +300,12 @@ async function parseHlsMasterPlaylist(manifestUrl) {
 // pages (CORS), so the overlay hands payloads here for dispatch.
 // ---------------------------------------------------------------------------
 
+function stripRangeParam(url) {
+  // Strip the query param range=... cleanly without URLSearchParams
+  // (which percent-encodes raw commas in sparams and breaks HMAC signatures)
+  return url.replace(/([?&])range=[^&]+(&|$)/, (m, p, s) => s === "&" ? p : "");
+}
+
 async function handleGrabRelay(payload) {
   const headers = { ...(payload.headers || {}) };
 
@@ -312,16 +318,12 @@ async function handleGrabRelay(payload) {
   const cookieHeader = await getCookiesForUrl(payload.url, referer);
   if (cookieHeader) headers["Cookie"] = cookieHeader;
 
-  // Preserve Google Video CDN token validity: the sniffed URL is forwarded
-  // exactly as the player requested it, along with matching User-Agent, Origin,
-  // and valid full-range header (bytes=0-${sizeBytes - 1}).
+  // Preserve Google Video CDN token validity: strip player chunk range param
+  // cleanly without touching sparams commas, and set matching User-Agent & Origin.
   if (/googlevideo\.com/.test(payload.url)) {
     if (!headers["Origin"]) headers["Origin"] = "https://www.youtube.com";
     if (!headers["Referer"]) headers["Referer"] = "https://www.youtube.com/";
-    const entry = findStreamEntry(payload.url);
-    if (entry && entry.sizeBytes > 0) {
-      headers["Range"] = `bytes=0-${entry.sizeBytes - 1}`;
-    }
+    payload.url = stripRangeParam(payload.url);
   }
 
   const resp = await fetch(`${CANDAK_LOOPBACK_URL}/api/grab`, {

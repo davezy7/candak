@@ -345,7 +345,7 @@
       for (const m of ytMeta.values()) {
         const key = m.isAudio ? "audio" : `v${m.height || m.label}`;
         const s = byItag.get(m.itag);
-        const url = s ? s.url : m.url; // Intercepted (signed) beats pre-signed
+        const url = s ? s.url : null; // Only player-intercepted streams have valid PoTokens
         const prev = byQuality.get(key);
         if (!prev || (!prev.url && url)) byQuality.set(key, { m, url });
       }
