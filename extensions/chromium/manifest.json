@@ -7,8 +7,7 @@
     "downloads",
     "cookies",
     "storage",
-    "webRequest",
-    "webRequestExtraHeaders"
+    "webRequest"
   ],
   "host_permissions": [
     "<all_urls>"
