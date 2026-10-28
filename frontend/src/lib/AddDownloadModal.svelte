@@ -457,6 +457,7 @@
 
   async function handleSubmit() {
     if (!url.trim()) return;
+    if (isProbing) return; // Wait for size calculation to finish first
 
     if (!checkAcceptedExtension(filename || probeResult?.filename || url)) {
       return;
@@ -488,6 +489,7 @@
   async function handleBatchSubmit() {
     const selected = batchItems.filter(it => it.selected);
     if (selected.length === 0) return;
+    if (isBatchProbing) return; // Wait for size calculation to finish first
 
     const enforce = localStorage.getItem('candak_enforce_extensions') === 'true';
     if (enforce) {
@@ -975,12 +977,15 @@
             </button>
             <button 
               type="submit" 
-              disabled={isSubmitting || (isBatchMode ? selectedCount === 0 : !url.trim())}
+              disabled={isSubmitting || (isBatchMode ? (isBatchProbing || selectedCount === 0) : (isProbing || !url.trim()))}
               class="px-5 py-2 text-xs font-bold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-xl shadow-sm hover:shadow transition flex items-center gap-2 disabled:opacity-50 cursor-pointer"
             >
               {#if isSubmitting}
                 <Loader2 size={14} class="animate-spin" />
                 Starting...
+              {:else if (isBatchMode ? isBatchProbing : isProbing)}
+                <Loader2 size={14} class="animate-spin" />
+                Calculating...
               {:else}
                 <Download size={14} strokeWidth={2.5} />
                 {isBatchMode ? `Download (${selectedCount})` : 'Download'}
