@@ -80,6 +80,7 @@ type ProbeResult struct {
 	Resumable   bool              `json:"resumable"`
 	ContentType string            `json:"contentType"`
 	Headers     map[string]string `json:"headers,omitempty"`
+	Error       string            `json:"error,omitempty"`
 }
 
 // AddDownloadRequest holds the parameters for initializing a new download task.
@@ -89,7 +90,12 @@ type AddDownloadRequest struct {
 	SaveDir     string            `json:"saveDir"`
 	Connections int               `json:"connections"`
 	Headers     map[string]string `json:"headers,omitempty"`
+	TotalSize   int64             `json:"totalSize,omitempty"`
+	Resumable   bool              `json:"resumable,omitempty"`
 }
+
+// DownloadRequest is an alias for AddDownloadRequest.
+type DownloadRequest = AddDownloadRequest
 
 // GrabRequest represents a download request forwarded from a browser extension or external caller.
 type GrabRequest struct {
@@ -108,4 +114,10 @@ type ProgressEvent struct {
 	ETA            int64          `json:"eta"`      // Seconds remaining
 	Status         DownloadStatus `json:"status"`
 	Chunks         []*Chunk       `json:"chunks,omitempty"`
+}
+
+// StartupConfig represents the autostart and launch minimized preferences.
+type StartupConfig struct {
+	Enabled   bool `json:"enabled"`
+	Minimized bool `json:"minimized"`
 }

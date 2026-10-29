@@ -34,5 +34,4 @@ Thumbs.db
 
 # Internal docs
 GLOSSARY.md
-docs/adr/
-adr/
+docs/

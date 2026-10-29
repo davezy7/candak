@@ -14,6 +14,8 @@ type DownloadRepository interface {
 	UpdateDownloadProgress(ctx context.Context, id string, downloadedSize int64, speed int64, eta int64, status models.DownloadStatus) error
 	// UpdateDownloadStatus updates the download's operational status and error text.
 	UpdateDownloadStatus(ctx context.Context, id string, status models.DownloadStatus, errMsg string) error
+	// UpdateDownloadTotalSize updates total size when calculated post-init.
+	UpdateDownloadTotalSize(ctx context.Context, id string, totalSize int64) error
 	// GetDownload retrieves a single download by ID, including its associated chunks.
 	GetDownload(ctx context.Context, id string) (*models.Download, error)
 	// GetAllDownloads retrieves all downloads ordered chronologically descending.
@@ -22,12 +24,21 @@ type DownloadRepository interface {
 	DeleteDownload(ctx context.Context, id string) error
 }
 
+// ChunkOffsetUpdate specifies progress offset and status for batch persistence.
+type ChunkOffsetUpdate struct {
+	ChunkID       string
+	CurrentOffset int64
+	Status        models.ChunkStatus
+}
+
 // ChunkRepository defines storage operations for chunk partitions.
 type ChunkRepository interface {
 	// SaveChunks transactionally inserts or updates a slice of chunk records.
 	SaveChunks(ctx context.Context, chunks []*models.Chunk) error
 	// UpdateChunkOffset persists a chunk's progress offset and status.
 	UpdateChunkOffset(ctx context.Context, chunkID string, currentOffset int64, status models.ChunkStatus) error
+	// BatchUpdateChunkOffsets persists multiple chunk offsets in a single atomic transaction.
+	BatchUpdateChunkOffsets(ctx context.Context, updates []ChunkOffsetUpdate) error
 	// GetChunks retrieves all chunks assigned to a download ID in ascending index order.
 	GetChunks(ctx context.Context, downloadID string) ([]*models.Chunk, error)
 }

@@ -87,3 +87,54 @@ func TestSanitizeFilename(t *testing.T) {
 		}
 	}
 }
+
+func TestBatchProbe(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/file1.zip":
+			w.Header().Set("Content-Length", "1000")
+			w.WriteHeader(http.StatusOK)
+		case "/file2.tar":
+			w.Header().Set("Content-Length", "2000")
+			w.WriteHeader(http.StatusOK)
+		case "/error404":
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+
+	p := NewHTTPProber(WithHTTPClient(server.Client()))
+	urls := []string{
+		server.URL + "/file1.zip",
+		server.URL + "/error404",
+		server.URL + "/file2.tar",
+		"http://invalid.local.nonexistent.domain/file.bin",
+	}
+
+	results, err := BatchProbe(context.Background(), p, urls, 4)
+	if err != nil {
+		t.Fatalf("BatchProbe failed: %v", err)
+	}
+
+	if len(results) != 4 {
+		t.Fatalf("Expected 4 results, got %d", len(results))
+	}
+
+	if results[0].Error != "" || results[0].Filename != "file1.zip" || results[0].TotalSize != 1000 {
+		t.Errorf("Unexpected result[0]: %+v", results[0])
+	}
+
+	if results[1].Error == "" {
+		t.Errorf("Expected result[1] to have error for 404, got nil error: %+v", results[1])
+	}
+
+	if results[2].Error != "" || results[2].Filename != "file2.tar" || results[2].TotalSize != 2000 {
+		t.Errorf("Unexpected result[2]: %+v", results[2])
+	}
+
+	if results[3].Error == "" {
+		t.Errorf("Expected result[3] to have error for nonexistent domain, got nil: %+v", results[3])
+	}
+}

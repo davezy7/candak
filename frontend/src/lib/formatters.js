@@ -86,3 +86,24 @@ export function getFileExtension(filename) {
   if (parts.length <= 1) return '';
   return parts.pop().toLowerCase().trim();
 }
+
+export function getExtensionBadge(filename, savePath) {
+  const target = (filename && filename.includes('.')) ? filename : (savePath || filename || '');
+  const basename = target.split(/[/\\]/).pop() || '';
+  if (!basename || !basename.includes('.')) return 'FILE';
+  const ext = basename.split('.').pop()?.trim().toUpperCase() || 'FILE';
+  return ext.length > 5 ? ext.slice(0, 4) : ext;
+}
+
+export function getFolderPath(savePath) {
+  if (!savePath) return '';
+  const separator = savePath.includes('\\') ? '\\' : '/';
+  if (!savePath.includes(separator)) return '';
+  const parts = savePath.split(separator);
+  parts.pop();
+  const folder = parts.join(separator);
+  if (!folder) return separator;
+  if (folder.endsWith(':')) return folder + separator;
+  return folder;
+}
+

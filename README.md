@@ -1,6 +1,6 @@
 # Candak Download Manager
 
-**Version: 0.1.1**
+**Version: 0.2.0**
 
 A fast, lightweight, and modern desktop download manager built with Go, Wails v2, Svelte 5, and SQLite. Candak features high-throughput multi-threaded chunking, crash-resilient pause and resume support, a compact mini prompt dialog, and companion browser integration.
 
