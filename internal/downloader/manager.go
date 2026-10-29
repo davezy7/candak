@@ -92,7 +92,7 @@ func NewManager(cfg Config) *Manager {
 
 	ua := cfg.UserAgent
 	if ua == "" {
-		ua = "Candak-Download-Manager/0.1.1"
+		ua = "Candak-Download-Manager/0.2.0"
 	}
 
 	pr := cfg.Prober
