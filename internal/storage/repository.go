@@ -14,6 +14,8 @@ type DownloadRepository interface {
 	UpdateDownloadProgress(ctx context.Context, id string, downloadedSize int64, speed int64, eta int64, status models.DownloadStatus) error
 	// UpdateDownloadStatus updates the download's operational status and error text.
 	UpdateDownloadStatus(ctx context.Context, id string, status models.DownloadStatus, errMsg string) error
+	// UpdateDownloadTotalSize updates total size when calculated post-init.
+	UpdateDownloadTotalSize(ctx context.Context, id string, totalSize int64) error
 	// GetDownload retrieves a single download by ID, including its associated chunks.
 	GetDownload(ctx context.Context, id string) (*models.Download, error)
 	// GetAllDownloads retrieves all downloads ordered chronologically descending.

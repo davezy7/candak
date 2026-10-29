@@ -9,7 +9,10 @@
     SelectDirectory, 
     GetDefaultDownloadDir, 
     SuppressClipboardURL, 
-    ClosePromptWindow 
+    ClosePromptWindow,
+    IsYouTubeURL,
+    GetYouTubeMetadata,
+    DownloadYouTubeVideo
   } from '@wails/go/main/App.js';
   import { WindowSetSize } from '@wails/runtime/runtime.js';
   import { formatBytes, getFileExtension, DEFAULT_ACCEPTED_EXTENSIONS } from './formatters.js';
@@ -26,7 +29,10 @@
     Check, 
     Download, 
     Loader2,
-    ChevronDown
+    ChevronDown,
+    Video,
+    Music,
+    Film
   } from 'lucide-svelte';
 
   export let isOpen = false;
@@ -51,6 +57,76 @@
   let probeTimer = null;
   let lastProbedUrl = '';
   let isExpanded = false;
+
+  // YouTube Dedicated Mode State
+  const YT_REGEX = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?.*v=|shorts\/|live\/)|youtu\.be\/)[a-zA-Z0-9_-]+/i;
+  const HLS_REGEX = /\.m3u8($|\?)/i;
+  let isYouTube = false;
+  let isAnalyzingYT = false;
+  let ytMeta = null;
+  let ytError = '';
+  let selectedYTFormat = null;
+
+  function isYouTubeLink(raw) {
+    return raw ? YT_REGEX.test(raw.trim()) : false;
+  }
+
+  function isHlsLink(raw) {
+    return raw ? HLS_REGEX.test(raw.trim()) : false;
+  }
+
+  async function fetchYouTubeDetails(targetUrl) {
+    const trimmed = (targetUrl || '').trim();
+    if (!trimmed || !isYouTubeLink(trimmed)) return;
+    isYouTube = true;
+    isAnalyzingYT = true;
+    ytError = '';
+    ytMeta = null;
+    selectedYTFormat = null;
+    if (isStandalone) {
+      WindowSetSize(560, 520);
+    }
+    try {
+      const meta = await GetYouTubeMetadata(trimmed);
+      ytMeta = meta;
+      if (meta && meta.title) {
+        filename = meta.title.replace(/[\\/:*?"<>|]/g, '').trim() + '.mp4';
+      }
+      if (meta && meta.options && meta.options.length > 0) {
+        selectedYTFormat = meta.options[0];
+      }
+    } catch (err) {
+      ytError = String(err);
+    } finally {
+      isAnalyzingYT = false;
+    }
+  }
+
+  function selectYTFormat(opt) {
+    selectedYTFormat = opt;
+    if (ytMeta && ytMeta.title) {
+      const base = ytMeta.title.replace(/[\\/:*?"<>|]/g, '').trim();
+      filename = `${base}.${opt.ext || 'mp4'}`;
+    }
+  }
+
+  async function handleYouTubeSubmit() {
+    if (!selectedYTFormat || isSubmitting) return;
+    isSubmitting = true;
+    try {
+      const finalName = filename || (ytMeta ? ytMeta.title + '.mp4' : 'youtube_download.mp4');
+      await DownloadYouTubeVideo(url.trim(), selectedYTFormat.format_id, saveDir, finalName, selectedYTFormat.filesize || 0);
+      if (isStandalone) {
+        await ClosePromptWindow(true, finalName, selectedYTFormat.filesize || 0);
+      }
+      onAdded();
+      handleClose();
+    } catch (err) {
+      ytError = String(err);
+    } finally {
+      isSubmitting = false;
+    }
+  }
 
   // Mode Selection: 'single' | 'batch'
   let activeMode = 'single';
@@ -111,14 +187,24 @@
         url = grabbedData.url;
         filename = grabbedData.filename || '';
         headers = grabbedData.headers || {};
-        handleProbe();
+        if (isYouTubeLink(url)) {
+          fetchYouTubeDetails(url);
+        } else {
+          isYouTube = false;
+          handleProbe();
+        }
       }
     }
   } else if (isOpen && initialUrl && initialUrl !== url && initialUrl !== batchText) {
     if (!checkAndTransitionBatch(initialUrl)) {
       url = initialUrl;
       headers = {};
-      handleProbe();
+      if (isYouTubeLink(url)) {
+        fetchYouTubeDetails(url);
+      } else {
+        isYouTube = false;
+        handleProbe();
+      }
     }
   }
 
@@ -371,6 +457,13 @@
     if (!trimmed || !trimmed.startsWith('http')) return;
     if (trimmed === lastProbedUrl) return;
 
+    if (isYouTubeLink(trimmed)) {
+      lastProbedUrl = trimmed;
+      fetchYouTubeDetails(trimmed);
+      return;
+    }
+
+    isYouTube = false;
     // Automatic probe debounced after user stops typing
     probeTimer = setTimeout(() => {
       handleProbe();
@@ -386,7 +479,13 @@
     }
     setTimeout(() => {
       if (checkAndTransitionBatch(url)) return;
-      handleProbe();
+      if (isYouTubeLink(url)) {
+        lastProbedUrl = url.trim();
+        fetchYouTubeDetails(url);
+      } else {
+        isYouTube = false;
+        handleProbe();
+      }
     }, 50);
   }
 
@@ -398,6 +497,25 @@
     isProbing = true;
     probeError = '';
     probeResult = null;
+
+    if (isHlsLink(target)) {
+      isProbing = false;
+      if (!filename || filename.endsWith('.m3u8')) {
+        try {
+          const parsed = new URL(target);
+          const base = parsed.pathname.split('/').filter(Boolean).pop() || 'video';
+          filename = base.replace(/\.m3u8$/i, '') + '.mp4';
+        } catch (_) {
+          filename = 'video.mp4';
+        }
+      }
+      probeResult = {
+        filename: filename,
+        totalSize: 0,
+        resumable: true
+      };
+      return;
+    }
 
     try {
       let res;
@@ -457,6 +575,32 @@
 
   async function handleSubmit() {
     if (!url.trim()) return;
+    if (isProbing) return; // Wait for size calculation to finish first
+
+    if (isHlsLink(url)) {
+      isSubmitting = true;
+      try {
+        let finalName = filename.trim();
+        if (!finalName) {
+          finalName = 'video.mp4';
+        } else if (finalName.endsWith('.m3u8')) {
+          finalName = finalName.replace(/\.m3u8$/i, '.mp4');
+        } else if (!finalName.endsWith('.mp4')) {
+          finalName = finalName + '.mp4';
+        }
+        await DownloadYouTubeVideo(url.trim(), 'best', saveDir, finalName, 0);
+        if (isStandalone) {
+          await ClosePromptWindow(true, finalName, 0);
+        }
+        onAdded();
+        handleClose();
+      } catch (err) {
+        probeError = String(err);
+      } finally {
+        isSubmitting = false;
+      }
+      return;
+    }
 
     if (!checkAcceptedExtension(filename || probeResult?.filename || url)) {
       return;
@@ -488,6 +632,7 @@
   async function handleBatchSubmit() {
     const selected = batchItems.filter(it => it.selected);
     if (selected.length === 0) return;
+    if (isBatchProbing) return; // Wait for size calculation to finish first
 
     const enforce = localStorage.getItem('candak_enforce_extensions') === 'true';
     if (enforce) {
@@ -543,6 +688,11 @@
     batchText = '';
     batchItems = [];
     isBatchProbing = false;
+    isYouTube = false;
+    isAnalyzingYT = false;
+    ytMeta = null;
+    ytError = '';
+    selectedYTFormat = null;
     onClose();
   }
 
@@ -561,7 +711,9 @@
       if (event.target && event.target.tagName === 'TEXTAREA') {
         return;
       }
-      if (isBatchMode) {
+      if (isYouTube) {
+        if (selectedYTFormat) handleYouTubeSubmit();
+      } else if (isBatchMode) {
         if (selectedCount > 0) handleBatchSubmit();
       } else if (url.trim()) {
         handleSubmit();
@@ -594,8 +746,10 @@
       {#if !isStandalone}
         <div class="px-6 py-5 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-bg)]/60">
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-2xl bg-[var(--color-accent-subtle)] flex items-center justify-center text-[var(--color-accent)]">
-              {#if isBatchMode}
+            <div class="w-10 h-10 rounded-2xl {isYouTube ? 'bg-red-500/10 text-red-500' : 'bg-[var(--color-accent-subtle)] text-[var(--color-accent)]'} flex items-center justify-center">
+              {#if isYouTube}
+                <Film size={20} strokeWidth={2.5} />
+              {:else if isBatchMode}
                 <Link size={20} strokeWidth={2.5} />
               {:else}
                 <Download size={20} strokeWidth={2.5} />
@@ -603,10 +757,10 @@
             </div>
             <div>
               <h3 id="modal-title" class="font-bold text-[var(--color-text)] text-base">
-                {isBatchMode ? 'Batch Multi-Download' : (grabbedData ? 'Download Prompt' : 'Add New Download')}
+                {isYouTube ? 'YouTube Video Downloader' : (isBatchMode ? 'Batch Multi-Download' : (grabbedData ? 'Download Prompt' : 'Add New Download'))}
               </h3>
               <p class="text-xs text-[var(--color-secondary)]">
-                {isBatchMode ? `${batchItems.length} link${batchItems.length === 1 ? '' : 's'} detected • Pre-flight review & batch enqueue` : (grabbedData ? 'URL captured • Review details and start download' : 'Multi-thread concurrent chunking with resume support')}
+                {isYouTube ? (ytMeta?.title || 'Select resolution and download YouTube video') : (isBatchMode ? `${batchItems.length} link${batchItems.length === 1 ? '' : 's'} detected • Pre-flight review & batch enqueue` : (grabbedData ? 'URL captured • Review details and start download' : 'Multi-thread concurrent chunking with resume support'))}
               </p>
             </div>
           </div>
@@ -621,9 +775,9 @@
       {/if}
 
       <!-- Form Body -->
-      <form on:submit|preventDefault={isBatchMode ? handleBatchSubmit : handleSubmit} class="{isStandalone ? 'p-4 space-y-3' : 'p-6 space-y-4'} flex-1 overflow-y-auto">
+      <form on:submit|preventDefault={isYouTube ? handleYouTubeSubmit : (isBatchMode ? handleBatchSubmit : handleSubmit)} class="{isStandalone ? 'p-4 space-y-3' : 'p-6 space-y-4'} flex-1 overflow-y-auto">
         <!-- Explicit Mode Tabs: Single File vs Batch URLs -->
-        {#if !isStandalone}
+        {#if !isStandalone && !isYouTube}
           <div class="flex items-center p-1 bg-[var(--color-input)] rounded-2xl border border-[var(--color-border)]">
             <button
               type="button"
@@ -649,7 +803,131 @@
           </div>
         {/if}
 
-        {#if isBatchMode}
+        {#if isYouTube}
+          <div class="space-y-3.5">
+            <!-- YouTube URL Banner -->
+            <div class="flex items-center justify-between p-2 rounded-xl bg-red-500/10 border border-red-500/20 text-xs">
+              <div class="flex items-center gap-2 min-w-0">
+                <Film size={15} class="text-red-500 shrink-0" />
+                <span class="font-bold text-red-500 text-[11px] uppercase tracking-wide">YouTube</span>
+                <span class="text-[11px] text-[var(--color-secondary)] font-mono truncate">{url}</span>
+              </div>
+              <button
+                type="button"
+                on:click={() => { isYouTube = false; handleProbe(); }}
+                class="text-[11px] text-[var(--color-secondary)] hover:text-[var(--color-text)] underline shrink-0 cursor-pointer ml-2"
+              >
+                Standard mode
+              </button>
+            </div>
+
+            {#if isAnalyzingYT}
+              <div class="py-12 flex flex-col items-center justify-center gap-3">
+                <Loader2 size={30} class="animate-spin text-[var(--color-accent)]" />
+                <p class="text-xs font-semibold text-[var(--color-text)]">Analyzing YouTube stream...</p>
+                <p class="text-[11px] text-[var(--color-secondary)]">Extracting video formats and audio options</p>
+              </div>
+            {:else if ytError}
+              <div class="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl space-y-2">
+                <div class="flex items-start gap-2 text-rose-500 text-xs">
+                  <AlertCircle size={15} class="shrink-0 mt-0.5" />
+                  <span class="break-all">{ytError}</span>
+                </div>
+                <button
+                  type="button"
+                  on:click={() => fetchYouTubeDetails(url)}
+                  class="text-xs px-3 py-1 bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-lg hover:bg-rose-500/30 transition cursor-pointer font-medium"
+                >
+                  Retry
+                </button>
+              </div>
+            {:else if ytMeta}
+              <!-- Video Metadata Card -->
+              <div class="flex gap-3 p-2.5 rounded-2xl bg-[var(--color-input)]/50 border border-[var(--color-border)]">
+                {#if ytMeta.thumbnail}
+                  <div class="relative w-32 aspect-video rounded-xl overflow-hidden bg-black/40 shrink-0 border border-[var(--color-border)]">
+                    <img src={ytMeta.thumbnail} alt={ytMeta.title} class="w-full h-full object-cover" />
+                    {#if ytMeta.duration_str}
+                      <span class="absolute bottom-1 right-1 px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-black/80 text-white">
+                        {ytMeta.duration_str}
+                      </span>
+                    {/if}
+                  </div>
+                {/if}
+                <div class="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                  <div>
+                    <h4 class="text-xs font-bold text-[var(--color-text)] line-clamp-2 leading-tight" title={ytMeta.title}>
+                      {ytMeta.title}
+                    </h4>
+                    {#if ytMeta.uploader}
+                      <p class="text-[11px] text-[var(--color-secondary)] mt-1 truncate">
+                        {ytMeta.uploader}
+                      </p>
+                    {/if}
+                  </div>
+                  <p class="text-[10px] text-[var(--color-secondary)]/80 font-mono mt-1 truncate">
+                    {filename}
+                  </p>
+                </div>
+              </div>
+
+              <!-- Format / Resolution Selector -->
+              <div>
+                <span class="block text-xs font-semibold text-[var(--color-text)] mb-1.5">
+                  Select Resolution / Format
+                </span>
+                <div class="grid grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+                  {#each ytMeta.options || [] as opt}
+                    <button
+                      type="button"
+                      on:click={() => selectYTFormat(opt)}
+                      class="p-2 rounded-xl border text-left transition flex items-center justify-between cursor-pointer {selectedYTFormat === opt ? 'border-[var(--color-accent)] bg-[var(--color-accent-subtle)] text-[var(--color-accent)] ring-1 ring-[var(--color-accent)]' : 'border-[var(--color-border)] bg-[var(--color-input)]/40 hover:bg-[var(--color-input)] text-[var(--color-text)]'}"
+                    >
+                      <div class="flex items-center gap-2 min-w-0">
+                        {#if opt.is_audio}
+                          <Music size={14} class="shrink-0 {selectedYTFormat === opt ? 'text-[var(--color-accent)]' : 'text-[var(--color-secondary)]'}" />
+                        {:else}
+                          <Video size={14} class="shrink-0 {selectedYTFormat === opt ? 'text-[var(--color-accent)]' : 'text-[var(--color-secondary)]'}" />
+                        {/if}
+                        <div class="truncate">
+                          <div class="text-xs font-bold truncate leading-tight">{opt.resolution}</div>
+                          <div class="text-[10px] text-[var(--color-secondary)] uppercase">{opt.ext}</div>
+                        </div>
+                      </div>
+                      {#if opt.filesize > 0}
+                        <span class="text-[11px] font-mono font-medium shrink-0 ml-1.5 opacity-90">
+                          {formatBytes(opt.filesize)}
+                        </span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+
+              <!-- Save Directory -->
+              <div>
+                <label for="yt-save-dir" class="block text-xs font-semibold text-[var(--color-text)] mb-1">Save Path</label>
+                <div class="flex gap-2">
+                  <input 
+                    id="yt-save-dir"
+                    type="text" 
+                    bind:value={saveDir}
+                    placeholder="/Downloads"
+                    class="w-full bg-[var(--color-input)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-xs text-[var(--color-text)] font-mono focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 transition"
+                  />
+                  <button 
+                    type="button"
+                    on:click={handleBrowse}
+                    class="px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] text-xs font-medium rounded-xl border border-[var(--color-border)] shadow-2xs transition flex items-center gap-1.5 shrink-0 cursor-pointer"
+                  >
+                    <Folder size={14} class="text-[var(--color-secondary)]" />
+                    Browse
+                  </button>
+                </div>
+              </div>
+            {/if}
+          </div>
+        {:else if isBatchMode}
           <!-- Batch URL Importer (Multi-line field / Free text) -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
@@ -974,13 +1252,20 @@
               Cancel
             </button>
             <button 
-              type="submit" 
-              disabled={isSubmitting || (isBatchMode ? selectedCount === 0 : !url.trim())}
+              type={isYouTube ? "button" : "submit"} 
+              on:click={isYouTube ? handleYouTubeSubmit : undefined}
+              disabled={isSubmitting || (isYouTube ? (!selectedYTFormat || isAnalyzingYT) : (isBatchMode ? (isBatchProbing || selectedCount === 0) : (isProbing || !url.trim())))}
               class="px-5 py-2 text-xs font-bold text-white bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-xl shadow-sm hover:shadow transition flex items-center gap-2 disabled:opacity-50 cursor-pointer"
             >
               {#if isSubmitting}
                 <Loader2 size={14} class="animate-spin" />
                 Starting...
+              {:else if isYouTube}
+                <Download size={14} strokeWidth={2.5} />
+                Download {selectedYTFormat?.resolution || 'Video'}
+              {:else if (isBatchMode ? isBatchProbing : isProbing)}
+                <Loader2 size={14} class="animate-spin" />
+                Calculating...
               {:else}
                 <Download size={14} strokeWidth={2.5} />
                 {isBatchMode ? `Download (${selectedCount})` : 'Download'}

@@ -170,7 +170,7 @@ func (s *LoopbackServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"status":  "ok",
 		"app":     "candak",
-		"version": "0.1.1",
+		"version": "0.2.0",
 		"service": "loopback-grabber",
 	})
 }

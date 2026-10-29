@@ -115,3 +115,15 @@ func TestAppBatchMethods(t *testing.T) {
 		t.Errorf("expected error when manager not initialized")
 	}
 }
+
+func TestAppYouTubeSupport(t *testing.T) {
+	app := NewApp()
+
+	if !app.IsYouTubeURL("https://www.youtube.com/watch?v=dQw4w9WgXcQ") {
+		t.Errorf("expected IsYouTubeURL = true")
+	}
+
+	if app.IsYouTubeURL("https://example.com/download.zip") {
+		t.Errorf("expected IsYouTubeURL = false")
+	}
+}

@@ -19,10 +19,15 @@ async function isCandakRunning() {
   }
 }
 
-// Retrieve relevant cookies for target URL to preserve authenticated downloads
-async function getCookiesForUrl(targetUrl) {
+// Retrieve relevant cookies for target URL to preserve authenticated downloads.
+// For CDN hosts like googlevideo.com which have no cookies of their own, falls back
+// to the originating page URL (e.g. youtube.com).
+async function getCookiesForUrl(targetUrl, fallbackUrl) {
   try {
-    const cookies = await chrome.cookies.getAll({ url: targetUrl });
+    let cookies = await chrome.cookies.getAll({ url: targetUrl });
+    if ((!cookies || cookies.length === 0) && fallbackUrl) {
+      cookies = await chrome.cookies.getAll({ url: fallbackUrl });
+    }
     if (!cookies || cookies.length === 0) return "";
     return cookies.map(c => `${c.name}=${c.value}`).join("; ");
   } catch (err) {
@@ -98,4 +103,301 @@ chrome.downloads.onDeterminingFilename.addListener((downloadItem, suggest) => {
   });
 
   return true; // Keep callback channel open for async determination
+});
+
+// ---------------------------------------------------------------------------
+// Media Stream Sniffer: tab-scoped registry of media responses observed on
+// the network, used by the in-page Video Grabber Overlay (content.js).
+// ---------------------------------------------------------------------------
+
+const streamRegistry = new Map(); // tabId -> Map(url -> stream entry)
+const recentStreams = new Map(); // Global FIFO buffer for worker/prerender requests where tabId < 0
+const MAX_RECENT_STREAMS = 60;
+
+function isMediaUrl(url) {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.toLowerCase();
+    if (/\.(mp4|m3u8|webm|ts|m4s)$/.test(path)) return true;
+    if (path.includes("videoplayback") || (u.hostname.includes("googlevideo.com") && u.searchParams.has("itag"))) return true;
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
+function isMediaMime(mime) {
+  return /^(video|audio)\//i.test(mime) ||
+    /^application\/vnd\.apple\.mpegurl$/i.test(mime) ||
+    /^application\/dash\+xml$/i.test(mime);
+}
+
+function extractItag(url) {
+  const m = /[?&]itag=(\d+)/.exec(url);
+  return m ? m[1] : null;
+}
+
+// Prefer the total size from Content-Range (range responses report chunk
+// length in Content-Length); fall back to Content-Length.
+function extractSizeBytes(responseHeaders) {
+  let total = null;
+  for (const h of responseHeaders) {
+    const name = h.name.toLowerCase();
+    if (name === "content-range") {
+      const slash = h.value.lastIndexOf("/");
+      if (slash !== -1) {
+        const parsed = parseInt(h.value.slice(slash + 1), 10);
+        if (!Number.isNaN(parsed) && parsed > 0) total = parsed;
+      }
+    } else if (name === "content-length" && total === null) {
+      const parsed = parseInt(h.value, 10);
+      if (!Number.isNaN(parsed) && parsed > 0) total = parsed;
+    }
+  }
+  return total;
+}
+
+function registerStream(tabId, entry) {
+  if (tabId >= 0) {
+    let perTab = streamRegistry.get(tabId);
+    if (!perTab) {
+      perTab = new Map();
+      streamRegistry.set(tabId, perTab);
+    }
+    perTab.set(entry.url, entry);
+    // Fire-and-forget nudge so the overlay can refresh or finish a pending grab
+    chrome.tabs.sendMessage(tabId, { type: "candak:streamsUpdated" }).catch(() => {});
+  }
+  // Also buffer in recentStreams to catch requests from service workers or pre-navigation
+  if (recentStreams.size >= MAX_RECENT_STREAMS) {
+    const oldestKey = recentStreams.keys().next().value;
+    recentStreams.delete(oldestKey);
+  }
+  recentStreams.set(entry.url, entry);
+}
+
+const onHeadersReceivedSpec = ["responseHeaders"];
+if (typeof browser === "undefined" && typeof chrome !== "undefined") {
+  // Chromium requires extraHeaders to inspect Content-Type / Content-Range
+  onHeadersReceivedSpec.push("extraHeaders");
+}
+
+chrome.webRequest.onHeadersReceived.addListener(
+  (details) => {
+    const mimeHeader = (details.responseHeaders || []).find(
+      h => h.name.toLowerCase() === "content-type"
+    );
+    let mimeType = mimeHeader ? mimeHeader.value.split(";")[0].trim() : "";
+    if (!mimeType && isMediaUrl(details.url)) {
+      if (details.url.includes("googlevideo.com") || details.url.includes("videoplayback")) {
+        mimeType = "video/mp4";
+      }
+    }
+    if (!isMediaMime(mimeType) && !isMediaUrl(details.url)) return;
+
+    registerStream(details.tabId, {
+      url: details.url,
+      mimeType: mimeType,
+      sizeBytes: extractSizeBytes(details.responseHeaders || []),
+      itag: extractItag(details.url),
+      frameId: details.frameId,
+      source: "network"
+    });
+  },
+  { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"] },
+  onHeadersReceivedSpec
+);
+
+// Prune tab-scoped registries when tabs close or navigate away
+chrome.tabs.onRemoved.addListener((tabId) => {
+  streamRegistry.delete(tabId);
+});
+chrome.tabs.onUpdated.addListener((tabId, info) => {
+  if (info.url) streamRegistry.delete(tabId);
+});
+
+function findStreamEntry(url) {
+  for (const perTab of streamRegistry.values()) {
+    const entry = perTab.get(url);
+    if (entry) return entry;
+  }
+  return recentStreams.get(url) || null;
+}
+
+// ---------------------------------------------------------------------------
+// Lazy HLS manifest variant parsing (only invoked on user hover/click)
+// ---------------------------------------------------------------------------
+
+function parseHlsAttributes(str) {
+  const attrs = {};
+  const push = (pair) => {
+    const eq = pair.indexOf("=");
+    if (eq === -1) return;
+    attrs[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim().replace(/^"|"$/g, "");
+  };
+  let cur = "";
+  let inQuotes = false;
+  for (const ch of str) {
+    if (ch === '"') inQuotes = !inQuotes;
+    if (ch === "," && !inQuotes) {
+      push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  push(cur);
+  return attrs;
+}
+
+function classifyHlsTracks(codecs, audioGroup) {
+  const c = (codecs || "").toLowerCase();
+  const hasVideo = /avc1|hvc1|hevc|av01|vp8|vp9|vp09/.test(c);
+  const hasAudio = /mp4a|opus|ac-3|ec-3|flac/.test(c);
+  if (hasVideo && hasAudio) return "(Video + Audio)";
+  if (hasVideo) return "(Video only)";
+  if (hasAudio) return "(Audio only)";
+  return "(Video + Audio)";
+}
+
+function detectHlsDrm(lines) {
+  for (const l of lines) {
+    if (!l.startsWith("#EXT-X-KEY") && !l.startsWith("#EXT-X-SESSION-KEY")) continue;
+    const lower = l.toLowerCase();
+    if (lower.includes("method=none")) continue;
+    if (
+      lower.includes("sample-aes") ||
+      lower.includes("com.widevine") ||
+      lower.includes("com.microsoft.playready") ||
+      lower.includes("com.apple.fps") ||
+      lower.includes("streamingkeydelivery") ||
+      lower.includes("edef8ba9-79d6-4ace-a3c8-27dcd51d21ed") ||
+      lower.includes("9a04f079-9840-4286-ab92-e65be0885f95") ||
+      lower.includes("cenc") ||
+      lower.includes("cbcs")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function parseHlsMasterPlaylist(manifestUrl) {
+  const res = await fetch(manifestUrl);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  const lines = text.split("\n").map(l => l.trim());
+  const isDrm = detectHlsDrm(lines);
+
+  if (!lines.some(l => l.startsWith("#EXT-X-STREAM-INF"))) {
+    // Media playlist (single rendition), not a master playlist
+    const single = [{
+      label: null,
+      url: manifestUrl,
+      bandwidth: null,
+      codecs: "",
+      tracks: "(Video + Audio)"
+    }];
+    single.isDrm = isDrm;
+    return single;
+  }
+
+  const variants = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith("#EXT-X-STREAM-INF")) continue;
+    const attrs = parseHlsAttributes(lines[i].slice(lines[i].indexOf(":") + 1));
+    const next = lines[i + 1];
+    if (!next || next.startsWith("#")) continue;
+    const height = parseInt((attrs["RESOLUTION"] || "").split("x")[1], 10);
+    variants.push({
+      label: !Number.isNaN(height) && height > 0 ? `${height}p` : null,
+      url: new URL(next, manifestUrl).href,
+      bandwidth: parseInt(attrs["BANDWIDTH"] || "0", 10) || null,
+      codecs: attrs["CODECS"] || "",
+      tracks: classifyHlsTracks(attrs["CODECS"], attrs["AUDIO"])
+    });
+  }
+  variants.isDrm = isDrm;
+  return variants;
+}
+
+// ---------------------------------------------------------------------------
+// Grab relay: content scripts cannot POST to the loopback server from https
+// pages (CORS), so the overlay hands payloads here for dispatch.
+// ---------------------------------------------------------------------------
+
+function stripRangeParam(url) {
+  // Strip the query param range=... cleanly without URLSearchParams
+  // (which percent-encodes raw commas in sparams and breaks HMAC signatures)
+  return url.replace(/([?&])range=[^&]+(&|$)/, (m, p, s) => s === "&" ? p : "");
+}
+
+async function handleGrabRelay(payload) {
+  const headers = { ...(payload.headers || {}) };
+
+  // Ensure browser User-Agent is forwarded so CDN signature checks pass
+  if (!headers["User-Agent"] && typeof navigator !== "undefined" && navigator.userAgent) {
+    headers["User-Agent"] = navigator.userAgent;
+  }
+
+  const referer = headers["Referer"] || "https://www.youtube.com/";
+  const cookieHeader = await getCookiesForUrl(payload.url, referer);
+  if (cookieHeader) headers["Cookie"] = cookieHeader;
+
+  // Preserve Google Video CDN token validity: strip player chunk range param
+  // cleanly without touching sparams commas, and set matching User-Agent & Origin.
+  if (/googlevideo\.com/.test(payload.url)) {
+    if (!headers["Origin"]) headers["Origin"] = "https://www.youtube.com";
+    if (!headers["Referer"]) headers["Referer"] = "https://www.youtube.com/";
+    payload.url = stripRangeParam(payload.url);
+  }
+
+  const resp = await fetch(`${CANDAK_LOOPBACK_URL}/api/grab`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Candak-Source": "browser-extension"
+    },
+    body: JSON.stringify({
+      url: payload.url,
+      filename: payload.filename || "",
+      headers
+    })
+  });
+  if (!resp.ok) {
+    throw new Error(`Grab endpoint returned ${resp.status}`);
+  }
+}
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "candak:getStreams") {
+    const perTab = streamRegistry.get(sender.tab ? sender.tab.id : -1);
+    const map = new Map();
+    if (perTab) {
+      for (const [url, entry] of perTab.entries()) {
+        map.set(url, entry);
+      }
+    }
+    // Supplement with recentStreams for worker/prerender requests
+    for (const [url, entry] of recentStreams.entries()) {
+      if (!map.has(url)) {
+        map.set(url, entry);
+      }
+    }
+    sendResponse({ streams: [...map.values()] });
+    return false;
+  }
+  if (msg.type === "candak:parseHLS") {
+    parseHlsMasterPlaylist(msg.url)
+      .then(variants => sendResponse({ variants, isDrm: !!variants.isDrm }))
+      .catch(err => sendResponse({ error: String(err) }));
+    return true; // Async response
+  }
+  if (msg.type === "candak:grab") {
+    handleGrabRelay(msg.payload)
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: String(err) }));
+    return true; // Async response
+  }
+  return false;
 });

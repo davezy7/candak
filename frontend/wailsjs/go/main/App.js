@@ -50,6 +50,10 @@ export function DownloadUpdate(arg1, arg2) {
   return window['go']['main']['App']['DownloadUpdate'](arg1, arg2);
 }
 
+export function DownloadYouTubeVideo(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['DownloadYouTubeVideo'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
 }
@@ -82,12 +86,20 @@ export function GetURLHistory() {
   return window['go']['main']['App']['GetURLHistory']();
 }
 
+export function GetYouTubeMetadata(arg1) {
+  return window['go']['main']['App']['GetYouTubeMetadata'](arg1);
+}
+
 export function HandleGrabRequest(arg1) {
   return window['go']['main']['App']['HandleGrabRequest'](arg1);
 }
 
 export function IsClipboardWatching() {
   return window['go']['main']['App']['IsClipboardWatching']();
+}
+
+export function IsYouTubeURL(arg1) {
+  return window['go']['main']['App']['IsYouTubeURL'](arg1);
 }
 
 export function NotifyDesktop(arg1, arg2) {
