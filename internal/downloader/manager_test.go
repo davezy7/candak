@@ -162,3 +162,331 @@ func (w *testWriterAt) WriteAt(p []byte, off int64) (n int, err error) {
 	copy(w.buf[off:], p)
 	return len(p), nil
 }
+
+func TestResumeUnfinishedDownloads(t *testing.T) {
+	ctx := context.Background()
+	payload := []byte("TEST_RESUME_UNFINISHED_DATA")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "candak-resume-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	repo, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to init sqlite repo: %v", err)
+	}
+	defer repo.Close()
+
+	// Insert an interrupted download with StatusDownloading directly into repo
+	dl := &models.Download{
+		ID:             "dl_interrupted_1",
+		URL:            server.URL + "/file.bin",
+		Filename:       "interrupted.bin",
+		SavePath:       filepath.Join(tempDir, "interrupted.bin"),
+		TotalSize:      int64(len(payload)),
+		DownloadedSize: 0,
+		Status:         models.StatusDownloading,
+		Resumable:      true,
+		TotalChunks:    1,
+		CreatedAt:      time.Now().Format(time.RFC3339),
+		UpdatedAt:      time.Now().Format(time.RFC3339),
+	}
+	if err := repo.InsertDownload(ctx, dl); err != nil {
+		t.Fatalf("Failed to save initial download: %v", err)
+	}
+	chunks := []*models.Chunk{
+		{
+			ID:            "chunk_1",
+			DownloadID:    dl.ID,
+			ChunkIndex:    0,
+			StartOffset:   0,
+			EndOffset:     int64(len(payload) - 1),
+			CurrentOffset: 0,
+			Status:        models.ChunkStatusDownloading,
+		},
+	}
+	if err := repo.SaveChunks(ctx, chunks); err != nil {
+		t.Fatalf("Failed to save initial chunks: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Repository:   repo,
+		Prober:       prober.NewHTTPProber(prober.WithHTTPClient(server.Client())),
+		ChunkPlanner: planner.NewDefaultChunkPlanner(),
+		Broadcaster:  events.NewNullBroadcaster(),
+		HTTPClient:   server.Client(),
+	})
+
+	err = mgr.ResumeUnfinishedDownloads(ctx)
+	if err != nil {
+		t.Fatalf("ResumeUnfinishedDownloads failed: %v", err)
+	}
+
+	// Poll until completed
+	deadline := time.Now().Add(5 * time.Second)
+	var finalDL *models.Download
+	for time.Now().Before(deadline) {
+		finalDL, _ = repo.GetDownload(ctx, dl.ID)
+		if finalDL != nil && finalDL.Status == models.StatusCompleted {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if finalDL == nil || finalDL.Status != models.StatusCompleted {
+		t.Fatalf("Expected download to complete after resume, status: %v", finalDL.Status)
+	}
+}
+
+func TestProgressThrottleCadence(t *testing.T) {
+	mgr := NewManager(Config{
+		Broadcaster: events.NewNullBroadcaster(),
+	})
+	defer mgr.Close()
+
+	if !mgr.IsVisible() {
+		t.Errorf("expected default visibility to be true")
+	}
+	if cadence := mgr.getProgressCadence(); cadence != 600*time.Millisecond {
+		t.Errorf("expected visible cadence 600ms, got %v", cadence)
+	}
+
+	mgr.SetVisible(false)
+	if mgr.IsVisible() {
+		t.Errorf("expected visibility to be false after SetVisible(false)")
+	}
+	if cadence := mgr.getProgressCadence(); cadence != 2000*time.Millisecond {
+		t.Errorf("expected minimized cadence 2000ms, got %v", cadence)
+	}
+
+	mgr.SetVisible(true)
+	if cadence := mgr.getProgressCadence(); cadence != 600*time.Millisecond {
+		t.Errorf("expected visible cadence 600ms, got %v", cadence)
+	}
+}
+
+func TestBackgroundFlusherBatchOffsets(t *testing.T) {
+	ctx := context.Background()
+	tempDir, err := os.MkdirTemp("", "candak-flusher-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	repo, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to init sqlite repo: %v", err)
+	}
+	defer repo.Close()
+
+	dl := &models.Download{
+		ID:             "dl_flusher_test",
+		URL:            "https://example.com/file.bin",
+		Filename:       "file.bin",
+		SavePath:       filepath.Join(tempDir, "file.bin"),
+		TotalSize:      2000,
+		DownloadedSize: 100,
+		Status:         models.StatusDownloading,
+		TotalChunks:    2,
+	}
+	if err := repo.InsertDownload(ctx, dl); err != nil {
+		t.Fatalf("InsertDownload error: %v", err)
+	}
+
+	chunks := []*models.Chunk{
+		{
+			ID:            "ch_flush_0",
+			DownloadID:    dl.ID,
+			ChunkIndex:    0,
+			StartOffset:   0,
+			EndOffset:     999,
+			CurrentOffset: 100,
+			Status:        models.ChunkStatusDownloading,
+		},
+		{
+			ID:            "ch_flush_1",
+			DownloadID:    dl.ID,
+			ChunkIndex:    1,
+			StartOffset:   1000,
+			EndOffset:     1999,
+			CurrentOffset: 1000,
+			Status:        models.ChunkStatusDownloading,
+		},
+	}
+	if err := repo.SaveChunks(ctx, chunks); err != nil {
+		t.Fatalf("SaveChunks error: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Repository:  repo,
+		Broadcaster: events.NewNullBroadcaster(),
+	})
+	defer mgr.Close()
+
+	// Simulate active task
+	taskCtx, taskCancel := context.WithCancel(context.Background())
+	defer taskCancel()
+	task := &activeTask{
+		ctx:      taskCtx,
+		cancel:   taskCancel,
+		download: dl,
+		chunks:   chunks,
+		doneChan: make(chan struct{}),
+	}
+	mgr.mu.Lock()
+	mgr.activeTasks[dl.ID] = task
+	mgr.mu.Unlock()
+
+	// Update chunk in-memory atomic counter
+	chunks[0].CurrentOffset = 450
+	chunks[1].CurrentOffset = 1350
+	dl.DownloadedSize = 800
+
+	// Flush dirty offsets across all active downloads
+	mgr.flushDirtyOffsets(ctx)
+
+	// Verify both chunks were updated in DB in single batch
+	updatedChunks, err := repo.GetChunks(ctx, dl.ID)
+	if err != nil {
+		t.Fatalf("GetChunks failed: %v", err)
+	}
+	if updatedChunks[0].CurrentOffset != 450 || updatedChunks[1].CurrentOffset != 1350 {
+		t.Errorf("chunk offsets not flushed properly: %+v", updatedChunks)
+	}
+
+	updatedDL, err := repo.GetDownload(ctx, dl.ID)
+	if err != nil {
+		t.Fatalf("GetDownload failed: %v", err)
+	}
+	if updatedDL.DownloadedSize != 800 {
+		t.Errorf("download progress not flushed properly: %+v", updatedDL)
+	}
+}
+
+func TestBatchProbeURLsAndAddBatchDownloads(t *testing.T) {
+	ctx := context.Background()
+	payload := []byte("BATCH_CONTENT_DATA_ABC")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "candak-batch-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "batch_test.db")
+	repo, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to init sqlite repo: %v", err)
+	}
+	defer repo.Close()
+
+	mgr := NewManager(Config{
+		Repository:             repo,
+		Prober:                 prober.NewHTTPProber(prober.WithHTTPClient(server.Client())),
+		ChunkPlanner:           planner.NewDefaultChunkPlanner(),
+		Broadcaster:            events.NewNullBroadcaster(),
+		HTTPClient:             server.Client(),
+		MaxConcurrentDownloads: 2,
+	})
+
+	urls := []string{
+		server.URL + "/batch1.bin",
+		server.URL + "/batch2.bin",
+		server.URL + "/batch3.bin",
+	}
+
+	// 1. Test BatchProbeURLs
+	probeResults, err := mgr.BatchProbeURLs(ctx, urls)
+	if err != nil {
+		t.Fatalf("BatchProbeURLs failed: %v", err)
+	}
+	if len(probeResults) != 3 {
+		t.Fatalf("Expected 3 probe results, got %d", len(probeResults))
+	}
+	for i, pr := range probeResults {
+		if pr.TotalSize != int64(len(payload)) {
+			t.Errorf("Result %d total size mismatch: got %d, want %d", i, pr.TotalSize, len(payload))
+		}
+	}
+
+	// 2. Test AddBatchDownloads with Concurrency Limit = 2
+	reqs := []models.DownloadRequest{
+		{URL: urls[0], Filename: "b1.bin", SaveDir: tempDir, Connections: 1, TotalSize: int64(len(payload)), Resumable: true},
+		{URL: urls[1], Filename: "b2.bin", SaveDir: tempDir, Connections: 1, TotalSize: int64(len(payload)), Resumable: true},
+		{URL: urls[2], Filename: "b3.bin", SaveDir: tempDir, Connections: 1, TotalSize: int64(len(payload)), Resumable: true},
+	}
+
+	ids, err := mgr.AddBatchDownloads(ctx, reqs)
+	if err != nil {
+		t.Fatalf("AddBatchDownloads failed: %v", err)
+	}
+	if len(ids) != 3 {
+		t.Fatalf("Expected 3 created IDs, got %d", len(ids))
+	}
+
+	// Verify all downloads eventually complete via queue dispatching
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		allDone := true
+		for _, id := range ids {
+			dl, err := repo.GetDownload(ctx, id)
+			if err != nil || dl.Status != models.StatusCompleted {
+				allDone = false
+				break
+			}
+		}
+		if allDone {
+			break
+		}
+	}
+
+	for _, id := range ids {
+		dl, err := repo.GetDownload(ctx, id)
+		if err != nil || dl.Status != models.StatusCompleted {
+			t.Fatalf("Download %s did not complete: %+v", id, dl)
+		}
+		data, err := os.ReadFile(dl.SavePath)
+		if err != nil || !bytes.Equal(data, payload) {
+			t.Errorf("File %s content mismatch", dl.SavePath)
+		}
+	}
+
+	// 3. Test Batch Collision Prevention (Same Filename)
+	collisionReqs := []models.DownloadRequest{
+		{URL: urls[0], Filename: "same.bin", SaveDir: tempDir, Connections: 4, Resumable: false},
+		{URL: urls[1], Filename: "same.bin", SaveDir: tempDir, Connections: 4, Resumable: false},
+	}
+	collisionIDs, err := mgr.AddBatchDownloads(ctx, collisionReqs)
+	if err != nil {
+		t.Fatalf("AddBatchDownloads with duplicate names failed: %v", err)
+	}
+	dl1, _ := repo.GetDownload(ctx, collisionIDs[0])
+	dl2, _ := repo.GetDownload(ctx, collisionIDs[1])
+	if dl1.SavePath == dl2.SavePath {
+		t.Errorf("Expected distinct save paths for collision items, both got %s", dl1.SavePath)
+	}
+	if dl1.TotalChunks != 1 || dl2.TotalChunks != 1 {
+		t.Errorf("Non-resumable downloads should use 1 chunk connection, got %d and %d", dl1.TotalChunks, dl2.TotalChunks)
+	}
+}

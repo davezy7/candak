@@ -178,6 +178,16 @@ func (s *Storage) UpdateDownloadProgress(ctx context.Context, id string, downloa
 	return err
 }
 
+// UpdateDownloadTotalSize updates total size when calculated post-init.
+func (s *Storage) UpdateDownloadTotalSize(ctx context.Context, id string, totalSize int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	query := `UPDATE downloads SET total_size = ? WHERE id = ? AND total_size <= 0`
+	_, err := s.db.ExecContext(ctx, query, totalSize, id)
+	return err
+}
+
 // UpdateDownloadStatus updates the download's operational status and error text.
 func (s *Storage) UpdateDownloadStatus(ctx context.Context, id string, status models.DownloadStatus, errMsg string) error {
 	s.mu.Lock()
@@ -391,6 +401,51 @@ func (s *Storage) UpdateChunkOffset(ctx context.Context, chunkID string, current
 	query := `UPDATE chunks SET current_offset = ?, status = ? WHERE id = ?`
 	_, err := s.db.ExecContext(ctx, query, currentOffset, string(status), chunkID)
 	return err
+}
+
+// BatchUpdateChunkOffsets persists multiple chunk offsets within a single IMMEDIATE transaction.
+func (s *Storage) BatchUpdateChunkOffsets(ctx context.Context, updates []storage.ChunkOffsetUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return err
+	}
+
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+
+	stmt, err := conn.PrepareContext(ctx, `UPDATE chunks SET current_offset = ?, status = ? WHERE id = ?`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, u := range updates {
+		if _, err := stmt.ExecContext(ctx, u.CurrentOffset, string(u.Status), u.ChunkID); err != nil {
+			return err
+		}
+	}
+
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 // GetChunks retrieves all chunks assigned to a download ID in ascending index order.
