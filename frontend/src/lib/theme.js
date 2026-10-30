@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
+import { STORAGE_KEYS } from './constants.js';
 
-const STORAGE_KEY = 'candak_theme';
+const STORAGE_KEY = STORAGE_KEYS.THEME;
 
 function getInitialTheme() {
   if (typeof window === 'undefined') return 'system';

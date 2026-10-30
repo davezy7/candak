@@ -32,9 +32,12 @@
     ShieldCheck,
     Power,
     RefreshCw,
-    Rocket
+    Rocket,
+    Languages
   } from 'lucide-svelte';
   import { DEFAULT_ACCEPTED_EXTENSIONS, formatDate } from './formatters.js';
+  import { STORAGE_KEYS } from './constants.js';
+  import { t, locale, setLocale, getAvailableLocales } from './i18n/index.js';
 
   export let isOpen = false;
   export let onClose = () => {};
@@ -76,16 +79,16 @@
 
   onMount(async () => {
     try {
-      const savedDir = localStorage.getItem('candak_custom_download_dir');
+      const savedDir = localStorage.getItem(STORAGE_KEYS.CUSTOM_DOWNLOAD_DIR);
       if (savedDir) {
         downloadDir = savedDir;
       } else {
         downloadDir = await GetDefaultDownloadDir();
       }
-      const savedConn = localStorage.getItem('candak_default_connections');
+      const savedConn = localStorage.getItem(STORAGE_KEYS.DEFAULT_CONNECTIONS);
       if (savedConn) defaultConnections = parseInt(savedConn, 10);
 
-      const savedExts = localStorage.getItem('candak_accepted_extensions');
+      const savedExts = localStorage.getItem(STORAGE_KEYS.ACCEPTED_EXTENSIONS);
       if (savedExts) {
         try {
           const parsed = JSON.parse(savedExts);
@@ -95,7 +98,7 @@
         } catch (_) {}
       }
 
-      enforceExtensions = localStorage.getItem('candak_enforce_extensions') === 'true';
+      enforceExtensions = localStorage.getItem(STORAGE_KEYS.ENFORCE_EXTENSIONS) === 'true';
 
       // Load loopback and clipboard status
       try {
@@ -124,7 +127,7 @@
         console.error('Failed to load app version:', e);
       }
 
-      const storedCheck = parseInt(localStorage.getItem('candak_last_update_check') || '0', 10);
+      const storedCheck = parseInt(localStorage.getItem(STORAGE_KEYS.LAST_UPDATE_CHECK) || '0', 10);
       if (storedCheck > 0) lastCheckedAt = new Date(storedCheck).toISOString();
     } catch (e) {
       console.error(e);
@@ -140,8 +143,8 @@
       const selected = await SelectDirectory();
       if (selected) {
         downloadDir = selected;
-        localStorage.setItem('candak_custom_download_dir', selected);
-        flashMessage('Default download directory updated');
+        localStorage.setItem(STORAGE_KEYS.CUSTOM_DOWNLOAD_DIR, selected);
+        flashMessage($t('modals.settings.status_dir_changed'));
       }
     } catch (err) {
       console.error(err);
@@ -160,23 +163,23 @@
     if (e && e.target) {
       defaultConnections = parseInt(e.target.value, 10);
     }
-    localStorage.setItem('candak_default_connections', String(defaultConnections));
+    localStorage.setItem(STORAGE_KEYS.DEFAULT_CONNECTIONS, String(defaultConnections));
   }
 
   function setConnections(val) {
     defaultConnections = val;
-    localStorage.setItem('candak_default_connections', String(defaultConnections));
+    localStorage.setItem(STORAGE_KEYS.DEFAULT_CONNECTIONS, String(defaultConnections));
   }
 
   function saveExtensions() {
-    localStorage.setItem('candak_accepted_extensions', JSON.stringify(acceptedExtensions));
-    localStorage.setItem('candak_enforce_extensions', String(enforceExtensions));
+    localStorage.setItem(STORAGE_KEYS.ACCEPTED_EXTENSIONS, JSON.stringify(acceptedExtensions));
+    localStorage.setItem(STORAGE_KEYS.ENFORCE_EXTENSIONS, String(enforceExtensions));
   }
 
   function handleToggleEnforce() {
     enforceExtensions = !enforceExtensions;
     saveExtensions();
-    flashMessage(enforceExtensions ? 'Extension filtering enabled' : 'Extension filtering disabled');
+    flashMessage($t('modals.settings.status_enforce_toggled'));
   }
 
   function handleAddExtension() {
@@ -194,7 +197,7 @@
     acceptedExtensions = [...acceptedExtensions, clean];
     newExtInput = '';
     saveExtensions();
-    flashMessage(`Added .${clean}`);
+    flashMessage($t('modals.settings.status_ext_added'));
   }
 
   function handleStartEdit(idx) {
@@ -219,7 +222,7 @@
     acceptedExtensions = [...acceptedExtensions];
     editingIndex = null;
     saveExtensions();
-    flashMessage(`Updated to .${clean}`);
+    flashMessage($t('modals.settings.status_ext_saved'));
   }
 
   function handleCancelEdit() {
@@ -233,13 +236,13 @@
     acceptedExtensions = acceptedExtensions.filter((_, i) => i !== idx);
     if (editingIndex === idx) editingIndex = null;
     saveExtensions();
-    flashMessage(`Removed .${removed}`);
+    flashMessage($t('modals.settings.status_ext_removed'));
   }
 
   function handleResetExtensions() {
     acceptedExtensions = [...DEFAULT_ACCEPTED_EXTENSIONS];
     saveExtensions();
-    flashMessage('Reset extensions to standard defaults');
+    flashMessage($t('modals.settings.status_ext_reset'));
   }
 
   function flashMessage(msg) {
@@ -254,8 +257,8 @@
       const nextState = !clipboardWatching;
       const res = await SetClipboardWatching(nextState);
       clipboardWatching = res;
-      localStorage.setItem('candak_clipboard_watching', String(res));
-      flashMessage(res ? 'Clipboard URL grabber enabled' : 'Clipboard URL grabber disabled');
+      localStorage.setItem(STORAGE_KEYS.CLIPBOARD_WATCHING, String(res));
+      flashMessage($t('modals.settings.status_clipboard_toggled'));
     } catch (err) {
       console.error(err);
     }
@@ -267,7 +270,6 @@
         extensionDir = await GetExtensionDir();
       }
       await OpenFolder(extensionDir);
-      flashMessage('Opened browser extension folder');
     } catch (err) {
       console.error(err);
     }
@@ -282,11 +284,11 @@
         minimized: startupMinimized
       });
       startupEnabled = nextEnabled;
-      flashMessage(nextEnabled ? 'Enabled launch on system startup' : 'Disabled launch on system startup');
+      flashMessage($t('modals.settings.status_startup_toggled'));
     } catch (err) {
       if (e && e.target) e.target.checked = prev;
       console.error('Failed to update startup settings:', err);
-      flashMessage('Failed to update startup settings');
+      flashMessage($t('common.error'));
     }
   }
 
@@ -300,11 +302,11 @@
         minimized: nextMinimized
       });
       startupMinimized = nextMinimized;
-      flashMessage(nextMinimized ? 'Enabled start minimized to tray' : 'Disabled start minimized to tray');
+      flashMessage($t('modals.settings.status_startup_toggled'));
     } catch (err) {
       if (e && e.target) e.target.checked = prev;
       console.error('Failed to update startup minimized settings:', err);
-      flashMessage('Failed to update startup settings');
+      flashMessage($t('common.error'));
     }
   }
 
@@ -319,7 +321,7 @@
     checkingUpdate = true;
     try {
       await onCheckForUpdates();
-      const ts = parseInt(localStorage.getItem('candak_last_update_check') || '0', 10);
+      const ts = parseInt(localStorage.getItem(STORAGE_KEYS.LAST_UPDATE_CHECK) || '0', 10);
       if (ts > 0) lastCheckedAt = new Date(ts).toISOString();
     } finally {
       checkingUpdate = false;
@@ -327,14 +329,14 @@
   }
 
   $: updateStatusText = checkingUpdate
-    ? 'Checking for updates...'
+    ? $t('modals.settings.checking')
     : updateError
       ? updateError
       : updateCheck?.updateAvailable
-        ? `New update available: v${updateCheck.latestVersion}`
+        ? $t('modals.update.title') + `: v${updateCheck.latestVersion}`
         : updateCheck
-          ? 'Up to date'
-          : 'Not checked yet';
+          ? $t('modals.update.up_to_date')
+          : '';
 </script>
 
 {#if isOpen}
@@ -357,14 +359,14 @@
             <Settings size={20} strokeWidth={2.5} />
           </div>
           <div>
-            <h3 id="settings-title" class="font-bold text-[var(--color-text)] text-base">Settings</h3>
-            <p class="text-xs text-[var(--color-secondary)]">Manage preferences, appearance, and storage</p>
+            <h3 id="settings-title" class="font-bold text-[var(--color-text)] text-base">{$t('modals.settings.title')}</h3>
+            <p class="text-xs text-[var(--color-secondary)]">{$t('modals.settings.subtitle')}</p>
           </div>
         </div>
         <button 
           on:click={onClose}
           class="text-[var(--color-secondary)] hover:text-[var(--color-text)] p-1.5 rounded-xl hover:bg-[var(--color-border)]/50 transition"
-          aria-label="Close settings"
+          aria-label={$t('modals.settings.close')}
         >
           <X size={18} />
         </button>
@@ -383,7 +385,7 @@
         <!-- Section: Appearance -->
         <div>
           <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
-            Appearance
+            {$t('modals.settings.appearance_section')}
           </h4>
           <div class="grid grid-cols-3 gap-2.5">
             <button 
@@ -395,7 +397,7 @@
               }"
             >
               <Sun size={20} strokeWidth={2.2} />
-              <span>Light Mode</span>
+              <span>{$t('modals.settings.theme_light')}</span>
             </button>
 
             <button 
@@ -407,7 +409,7 @@
               }"
             >
               <Moon size={20} strokeWidth={2.2} />
-              <span>Dark Mode</span>
+              <span>{$t('modals.settings.theme_dark')}</span>
             </button>
 
             <button 
@@ -419,15 +421,34 @@
               }"
             >
               <Monitor size={20} strokeWidth={2.2} />
-              <span>Auto (System)</span>
+              <span>{$t('modals.settings.theme_system')}</span>
             </button>
+          </div>
+
+          <!-- Language Selection Dropdown -->
+          <div class="mt-3 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-3.5 flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <div class="w-7 h-7 rounded-lg bg-[var(--color-accent-subtle)] text-[var(--color-accent)] flex items-center justify-center shrink-0">
+                <Languages size={15} />
+              </div>
+              <span class="text-xs font-semibold text-[var(--color-text)]">{$t('modals.settings.language_label')}</span>
+            </div>
+            <select
+              value={$locale}
+              on:change={(e) => setLocale(e.target.value)}
+              class="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-1.5 text-xs text-[var(--color-text)] font-semibold focus:outline-none focus:border-[var(--color-accent)] cursor-pointer"
+            >
+              {#each getAvailableLocales() as loc}
+                <option value={loc.code}>{loc.name}</option>
+              {/each}
+            </select>
           </div>
         </div>
 
         <!-- Section: System Startup -->
         <div>
           <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
-            System Startup
+            {$t('modals.settings.startup_section')}
           </h4>
           <div class="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-4 space-y-3.5">
             <div class="flex items-start gap-3">
@@ -443,8 +464,8 @@
                     class="w-4 h-4 rounded text-[var(--color-accent)] accent-[var(--color-accent)] cursor-pointer"
                   />
                   <div>
-                    <span class="text-xs font-semibold text-[var(--color-text)] block">Launch Candak on system startup</span>
-                    <span class="text-[11px] text-[var(--color-secondary)] block">Automatically start Candak when your computer boots up</span>
+                    <span class="text-xs font-semibold text-[var(--color-text)] block">{$t('modals.settings.launch_startup')}</span>
+                    <span class="text-[11px] text-[var(--color-secondary)] block">{$t('modals.settings.launch_startup_desc')}</span>
                   </div>
                 </label>
 
@@ -452,87 +473,87 @@
                 <div class="pl-6.5 transition-opacity {startupEnabled ? 'opacity-100' : 'opacity-40 pointer-events-none'}">
                   <label class="flex items-center gap-2.5 cursor-pointer select-none">
                     <input 
-                      type="checkbox" 
-                      checked={startupMinimized} 
-                      disabled={!startupEnabled}
-                      on:change={handleToggleStartupMinimized}
-                      class="w-4 h-4 rounded text-[var(--color-accent)] accent-[var(--color-accent)] cursor-pointer disabled:cursor-not-allowed"
-                    />
-                    <div>
-                      <span class="text-xs font-medium text-[var(--color-text)] block">Start minimized to system tray</span>
-                      <span class="text-[11px] text-[var(--color-secondary)] block">Run silently in tray daemon mode without opening the main window</span>
-                    </div>
-                  </label>
-                </div>
+                    type="checkbox" 
+                    checked={startupMinimized} 
+                    disabled={!startupEnabled}
+                    on:change={handleToggleStartupMinimized}
+                    class="w-4 h-4 rounded text-[var(--color-accent)] accent-[var(--color-accent)] cursor-pointer disabled:cursor-not-allowed"
+                  />
+                  <div>
+                    <span class="text-xs font-medium text-[var(--color-text)] block">{$t('modals.settings.start_minimized')}</span>
+                    <span class="text-[11px] text-[var(--color-secondary)] block">{$t('modals.settings.start_minimized_desc')}</span>
+                  </div>
+                </label>
               </div>
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- Section: Downloads & Directory -->
-        <div>
-          <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
-            Downloads Folder
-          </h4>
-          <div class="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-4 space-y-3">
-            <div class="flex items-center justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <span class="text-xs font-semibold text-[var(--color-text)] block">Default Save Path</span>
-                <span class="text-xs font-mono text-[var(--color-secondary)] truncate block mt-0.5" title={downloadDir}>
-                  {downloadDir || "Loading..."}
-                </span>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <button 
-                  on:click={handleBrowseDir}
-                  class="px-3 py-1.5 text-xs font-semibold bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl shadow-2xs transition"
-                >
-                  Change
-                </button>
-                <button 
-                  on:click={handleOpenDownloads}
-                  class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)] rounded-xl transition"
-                  title="Open folder in Finder / Explorer"
-                  aria-label="Open folder"
-                >
-                  <Folder size={16} />
-                </button>
-              </div>
+      <!-- Section: Downloads & Directory -->
+      <div>
+        <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
+          {$t('modals.settings.downloads_section')}
+        </h4>
+        <div class="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-4 space-y-3">
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0 flex-1">
+              <span class="text-xs font-semibold text-[var(--color-text)] block">{$t('modals.settings.default_path')}</span>
+              <span class="text-xs font-mono text-[var(--color-secondary)] truncate block mt-0.5" title={downloadDir}>
+                {downloadDir || "Loading..."}
+              </span>
             </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <button 
+                on:click={handleBrowseDir}
+                class="px-3 py-1.5 text-xs font-semibold bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl shadow-2xs transition"
+              >
+                {$t('modals.settings.change')}
+              </button>
+              <button 
+                on:click={handleOpenDownloads}
+                class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)] rounded-xl transition"
+                title={$t('modals.settings.open_folder_title')}
+                aria-label={$t('modals.settings.open_folder')}
+              >
+                <Folder size={16} />
+              </button>
+            </div>
+          </div>
 
-            <!-- Default Thread / Connection Slider -->
-            <div class="pt-3 border-t border-[var(--color-border)]">
-              <div class="flex items-center justify-between text-xs font-semibold text-[var(--color-text)] mb-1">
-                <span class="flex items-center gap-1.5">
-                  <Zap size={14} class="text-[var(--color-accent)]" />
-                  Default Download Threads
-                </span>
-                <span class="text-[var(--color-accent)] font-bold">{defaultConnections} chunks</span>
-              </div>
-              <input 
-                type="range" 
-                min="1" 
-                max="16" 
-                step="1" 
-                bind:value={defaultConnections} 
-                on:input={handleConnectionsChange}
-                class="w-full accent-[var(--color-accent)] bg-[var(--color-border)] h-2 rounded-lg cursor-pointer mt-1"
-              />
-              <div class="relative text-[10px] text-[var(--color-secondary)] mt-1.5 h-3.5 select-none">
-                <button type="button" on:click={() => setConnections(1)} class="absolute left-0 hover:text-[var(--color-text)] transition cursor-pointer">1 (Single)</button>
-                <button type="button" on:click={() => setConnections(4)} class="absolute left-[calc(8px+0.20*(100%-16px))] -translate-x-1/2 hover:text-[var(--color-text)] transition cursor-pointer">4 (Standard)</button>
-                <button type="button" on:click={() => setConnections(8)} class="absolute left-[calc(8px+0.467*(100%-16px))] -translate-x-1/2 hover:text-[var(--color-text)] transition cursor-pointer">8 (Fast)</button>
-                <button type="button" on:click={() => setConnections(16)} class="absolute right-0 hover:text-[var(--color-text)] transition cursor-pointer">16 (Max)</button>
-              </div>
+          <!-- Default Thread / Connection Slider -->
+          <div class="pt-3 border-t border-[var(--color-border)]">
+            <div class="flex items-center justify-between text-xs font-semibold text-[var(--color-text)] mb-1">
+              <span class="flex items-center gap-1.5">
+                <Zap size={14} class="text-[var(--color-accent)]" />
+                {$t('modals.settings.default_threads')}
+              </span>
+              <span class="text-[var(--color-accent)] font-bold">{$t('modals.settings.chunks_count', { count: defaultConnections })}</span>
+            </div>
+            <input 
+              type="range" 
+              min="1" 
+              max="16" 
+              step="1" 
+              bind:value={defaultConnections} 
+              on:input={handleConnectionsChange}
+              class="w-full accent-[var(--color-accent)] bg-[var(--color-border)] h-2 rounded-lg cursor-pointer mt-1"
+            />
+            <div class="relative text-[10px] text-[var(--color-secondary)] mt-1.5 h-3.5 select-none">
+              <button type="button" on:click={() => setConnections(1)} class="absolute left-0 hover:text-[var(--color-text)] transition cursor-pointer">{$t('modals.settings.thread_single')}</button>
+              <button type="button" on:click={() => setConnections(4)} class="absolute left-[calc(8px+0.20*(100%-16px))] -translate-x-1/2 hover:text-[var(--color-text)] transition cursor-pointer">{$t('modals.settings.thread_standard')}</button>
+              <button type="button" on:click={() => setConnections(8)} class="absolute left-[calc(8px+0.467*(100%-16px))] -translate-x-1/2 hover:text-[var(--color-text)] transition cursor-pointer">{$t('modals.settings.thread_fast')}</button>
+              <button type="button" on:click={() => setConnections(16)} class="absolute right-0 hover:text-[var(--color-text)] transition cursor-pointer">{$t('modals.settings.thread_max')}</button>
             </div>
           </div>
         </div>
+      </div>
 
         <!-- Section: Accepted File Extensions -->
         <div>
           <div class="flex items-center justify-between mb-2.5">
             <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider">
-              Accepted Extensions
+              {$t('modals.settings.extensions_section')}
             </h4>
             <!-- Toggle Enforce -->
             <button 
@@ -543,10 +564,10 @@
                   ? 'bg-[var(--color-accent-subtle)] text-[var(--color-accent)] border-[var(--color-accent)]/30' 
                   : 'bg-[var(--color-bg)] text-[var(--color-secondary)] border-[var(--color-border)]'
               }"
-              title="Toggle whether only accepted file types can be downloaded"
+              title={$t('modals.settings.extensions_toggle_title')}
             >
               <span class="w-2 h-2 rounded-full {enforceExtensions ? 'bg-[var(--color-accent)]' : 'bg-gray-400'}"></span>
-              <span>{enforceExtensions ? 'Filter Active' : 'Allow All'}</span>
+              <span>{enforceExtensions ? $t('modals.settings.filter_active') : $t('modals.settings.allow_all')}</span>
             </button>
           </div>
 
@@ -557,7 +578,7 @@
                 <input 
                   type="text" 
                   bind:value={newExtInput}
-                  placeholder="Add extension (e.g. epub, iso, dmg)..."
+                  placeholder={$t('modals.settings.add_extension_placeholder')}
                   class="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3.5 py-2 text-xs text-[var(--color-text)] placeholder-[var(--color-secondary)]/60 focus:outline-none focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20 font-mono transition"
                 />
               </div>
@@ -567,7 +588,7 @@
                 class="px-4 py-2 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-bold rounded-xl transition flex items-center gap-1.5 shadow-2xs disabled:opacity-40 shrink-0"
               >
                 <Plus size={14} strokeWidth={2.5} />
-                <span>Add</span>
+                <span>{$t('modals.settings.add')}</span>
               </button>
             </form>
 
@@ -594,7 +615,7 @@
                       type="button" 
                       on:click={() => handleSaveEdit(i)} 
                       class="text-[var(--color-accent)] hover:opacity-80 p-0.5"
-                      title="Save"
+                      title={$t('common.save')}
                     >
                       <Check size={13} strokeWidth={3} />
                     </button>
@@ -602,7 +623,7 @@
                       type="button" 
                       on:click={handleCancelEdit} 
                       class="text-[var(--color-secondary)] hover:text-rose-500 p-0.5"
-                      title="Cancel"
+                      title={$t('common.cancel')}
                     >
                       <X size={13} strokeWidth={2.5} />
                     </button>
@@ -614,7 +635,7 @@
                       type="button"
                       on:click={() => handleStartEdit(i)}
                       class="text-[var(--color-text)] hover:text-[var(--color-accent)] font-semibold flex items-center gap-0.5"
-                      title="Click to edit extension"
+                      title={$t('modals.settings.edit_extension')}
                     >
                       <span>.{ext}</span>
                       <Edit2 size={10} class="opacity-0 group-hover:opacity-60 text-[var(--color-secondary)] transition-opacity ml-1" />
@@ -624,7 +645,7 @@
                       type="button" 
                       on:click={() => handleRemoveExtension(i)}
                       class="text-[var(--color-secondary)] hover:text-rose-500 p-0.5 rounded transition"
-                      title="Remove extension"
+                      title={$t('modals.settings.remove_extension')}
                     >
                       <X size={12} strokeWidth={2.2} />
                     </button>
@@ -635,15 +656,15 @@
 
             <!-- Footer Stats & Reset -->
             <div class="pt-2 border-t border-[var(--color-border)] flex items-center justify-between text-[11px] text-[var(--color-secondary)]">
-              <span>{acceptedExtensions.length} accepted file types</span>
+              <span>{$t('modals.settings.accepted_types_count', { count: acceptedExtensions.length })}</span>
               <button 
                 type="button"
                 on:click={handleResetExtensions}
                 class="hover:text-[var(--color-accent)] flex items-center gap-1 transition"
-                title="Reset to default common file extensions"
+                title={$t('modals.settings.reset_defaults_title')}
               >
                 <RotateCcw size={12} />
-                <span>Reset Defaults</span>
+                <span>{$t('modals.settings.reset_defaults')}</span>
               </button>
             </div>
           </div>
@@ -652,7 +673,7 @@
         <!-- Section: Browser & Clipboard Integration -->
         <div>
           <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
-            Browser & URL Grabber Integration
+            {$t('modals.settings.browser_section')}
           </h4>
           <div class="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-4 space-y-4">
             <!-- Loopback Server Status -->
@@ -662,13 +683,13 @@
                   <Globe size={18} />
                 </div>
                 <div>
-                  <span class="text-xs font-semibold text-[var(--color-text)] block">Loopback Interception Server</span>
-                  <span class="text-[11px] text-[var(--color-secondary)]">Listening on 127.0.0.1:{loopbackStatus.port || 41920}</span>
+                  <span class="text-xs font-semibold text-[var(--color-text)] block">{$t('modals.settings.loopback_title')}</span>
+                  <span class="text-[11px] text-[var(--color-secondary)]">{$t('modals.settings.loopback_listening', { port: loopbackStatus.port || 41920 })}</span>
                 </div>
               </div>
               <span class="px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/15 text-emerald-500 flex items-center gap-1.5">
                 <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                Active
+                {$t('modals.settings.active')}
               </span>
             </div>
 
@@ -679,8 +700,8 @@
                   <Clipboard size={17} />
                 </div>
                 <div>
-                  <span class="text-xs font-semibold text-[var(--color-text)] block">Clipboard URL Grabber</span>
-                  <span class="text-[11px] text-[var(--color-secondary)]">Auto-prompt download when a downloadable link is copied</span>
+                  <span class="text-xs font-semibold text-[var(--color-text)] block">{$t('modals.settings.clipboard_grabber_title')}</span>
+                  <span class="text-[11px] text-[var(--color-secondary)]">{$t('modals.settings.clipboard_grabber_desc')}</span>
                 </div>
               </div>
               <button 
@@ -693,7 +714,7 @@
                 }"
               >
                 <span class="w-2 h-2 rounded-full {clipboardWatching ? 'bg-[var(--color-accent)]' : 'bg-gray-400'}"></span>
-                <span>{clipboardWatching ? 'Enabled' : 'Disabled'}</span>
+                <span>{clipboardWatching ? $t('modals.settings.enabled') : $t('modals.settings.disabled')}</span>
               </button>
             </div>
 
@@ -701,8 +722,8 @@
             <div class="pt-3 border-t border-[var(--color-border)] space-y-2.5">
               <div class="flex items-center justify-between">
                 <div>
-                  <span class="text-xs font-semibold text-[var(--color-text)] block">Companion Browser Extension</span>
-                  <span class="text-[11px] text-[var(--color-secondary)]">Directly intercepts browser download clicks</span>
+                  <span class="text-xs font-semibold text-[var(--color-text)] block">{$t('modals.settings.companion_ext_title')}</span>
+                  <span class="text-[11px] text-[var(--color-secondary)]">{$t('modals.settings.companion_ext_desc')}</span>
                 </div>
                 <button 
                   type="button"
@@ -710,7 +731,7 @@
                   class="px-3 py-1.5 text-xs font-semibold bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-accent)] border border-[var(--color-border)] rounded-xl shadow-2xs transition flex items-center gap-1.5 cursor-pointer"
                 >
                   <Folder size={14} />
-                  <span>Open Extension Folder</span>
+                  <span>{$t('modals.settings.open_ext_folder')}</span>
                 </button>
               </div>
 
@@ -718,12 +739,12 @@
               <div class="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-3 text-[11px] space-y-1.5 text-[var(--color-secondary)]">
                 <div class="font-bold text-[var(--color-text)] flex items-center gap-1.5">
                   <ShieldCheck size={14} class="text-[var(--color-accent)]" />
-                  Quick Installation (Chrome, Edge, Brave, Opera):
+                  {$t('modals.settings.quick_install_title')}
                 </div>
                 <ol class="list-decimal list-inside space-y-1 pl-1">
-                  <li>Open <code class="px-1 py-0.5 rounded bg-[var(--color-bg)] font-mono text-[10px]">chrome://extensions</code> in your browser.</li>
-                  <li>Enable <strong class="text-[var(--color-text)]">Developer mode</strong> (top-right toggle).</li>
-                  <li>Click <strong class="text-[var(--color-text)]">Load unpacked</strong> and select the Candak extension folder.</li>
+                  <li>{$t('modals.settings.quick_install_step1', { path: 'chrome://extensions' })}</li>
+                  <li>{$t('modals.settings.quick_install_step2')}</li>
+                  <li>{$t('modals.settings.quick_install_step3')}</li>
                 </ol>
               </div>
             </div>
@@ -733,7 +754,7 @@
         <!-- Section: Updates -->
         <div>
           <h4 class="text-xs font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2.5">
-            Updates
+            {$t('modals.settings.updates_section')}
           </h4>
           <div class="bg-[var(--color-bg)] border border-[var(--color-border)] rounded-2xl p-4 space-y-3">
             <div class="flex items-center justify-between gap-3">
@@ -743,10 +764,10 @@
                 </div>
                 <div class="min-w-0">
                   <span class="text-xs font-semibold text-[var(--color-text)] block">
-                    Current Version: v{appVersion || '...'}
+                    {$t('modals.settings.current_version', { version: appVersion || '...' })}
                   </span>
                   <span class="text-[11px] text-[var(--color-secondary)] block truncate">
-                    {updateStatusText}{lastCheckedAt ? ` • Last checked ${formatDate(lastCheckedAt)}` : ''}
+                    {updateStatusText}{lastCheckedAt ? ` • ${$t('modals.settings.last_checked', { date: formatDate(lastCheckedAt) })}` : ''}
                   </span>
                 </div>
               </div>
@@ -756,7 +777,7 @@
                 disabled={checkingUpdate}
                 class="px-3 py-1.5 text-xs font-semibold bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl shadow-2xs transition disabled:opacity-50 shrink-0 cursor-pointer"
               >
-                {checkingUpdate ? 'Checking...' : 'Check for Updates'}
+                {checkingUpdate ? $t('modals.settings.checking') : $t('modals.settings.check_for_updates')}
               </button>
             </div>
 
@@ -767,7 +788,7 @@
                 class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-[0.98] cursor-pointer"
               >
                 <Rocket size={14} strokeWidth={2.5} />
-                <span>View Update v{updateCheck.latestVersion}</span>
+                <span>{$t('modals.settings.view_update', { version: updateCheck.latestVersion })}</span>
               </button>
             {/if}
           </div>
@@ -775,8 +796,8 @@
 
         <!-- Section: About -->
         <div class="pt-1 text-center text-xs text-[var(--color-secondary)]">
-          <p class="font-bold text-[var(--color-text)]">Candak Download Manager v{appVersion || '0.2.0'}</p>
-          <p class="mt-0.5 text-[11px]">Fast, multi-threaded desktop download manager</p>
+          <p class="font-bold text-[var(--color-text)]">{$t('modals.settings.about_app', { version: appVersion || '0.2.0' })}</p>
+          <p class="mt-0.5 text-[11px]">{$t('modals.settings.about_desc')}</p>
         </div>
       </div>
     </div>

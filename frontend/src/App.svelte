@@ -15,6 +15,7 @@
     ShowInFolder
   } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
+  import { FILTER_MODE, IPC_EVENTS, STORAGE_KEYS } from './lib/constants.js';
   import TableView from './lib/TableView.svelte';
   import AddDownloadModal from './lib/AddDownloadModal.svelte';
   import HistoryModal from './lib/HistoryModal.svelte';
@@ -24,7 +25,7 @@
   import StatePreviewBar from './lib/StatePreviewBar.svelte';
 
   let downloads = [];
-  let filter = 'all'; // 'all' | 'downloading' | 'completed' | 'paused'
+  let filter = FILTER_MODE.ALL;
   let isAddModalOpen = false;
   let isHistoryModalOpen = false;
   let isSettingsModalOpen = false;
@@ -45,7 +46,7 @@
 
   onMount(async () => {
     // Sync clipboard watcher state from saved preference
-    const savedClipboard = localStorage.getItem('candak_clipboard_watching') === 'true';
+    const savedClipboard = localStorage.getItem(STORAGE_KEYS.CLIPBOARD_WATCHING) === 'true';
     if (savedClipboard) {
       try {
         await SetClipboardWatching(true);
@@ -60,7 +61,7 @@
     await fetchDownloads();
 
     // Listen to real-time progress events from Go backend
-    unlistenProgress = EventsOn('download:progress', (evt) => {
+    unlistenProgress = EventsOn(IPC_EVENTS.PROGRESS, (evt) => {
       const idx = downloads.findIndex(d => d.id === evt.downloadId);
       if (idx !== -1) {
         downloads[idx] = {
@@ -75,7 +76,7 @@
       }
     });
 
-    unlistenStatus = EventsOn('download:status_change', (dl) => {
+    unlistenStatus = EventsOn(IPC_EVENTS.STATUS_CHANGE, (dl) => {
       const idx = downloads.findIndex(d => d.id === dl.id);
       if (idx !== -1) {
         downloads[idx] = { ...downloads[idx], ...dl };
@@ -85,7 +86,7 @@
       downloads = [...downloads];
     });
 
-    unlistenDeleted = EventsOn('download:deleted', (id) => {
+    unlistenDeleted = EventsOn(IPC_EVENTS.DELETED, (id) => {
       downloads = downloads.filter(d => d.id !== id);
       if (selectedIds.has(id)) {
         const next = new Set(selectedIds);
@@ -95,7 +96,7 @@
     });
 
     // Listen for downloads grabbed from browser extension or clipboard
-    unlistenGrabbed = EventsOn('download:grabbed', (data) => {
+    unlistenGrabbed = EventsOn(IPC_EVENTS.GRABBED, (data) => {
       isStandalonePrompt = true;
       grabbedData = data;
       initialUrlForModal = data.url || '';
@@ -103,7 +104,7 @@
     });
 
     // Listen for standalone prompt mode
-    unlistenPromptMode = EventsOn('download:prompt_mode', (evt) => {
+    unlistenPromptMode = EventsOn(IPC_EVENTS.PROMPT_MODE, (evt) => {
       if (evt && evt.standalone) {
         isStandalonePrompt = true;
         if (evt.data) {
@@ -165,11 +166,11 @@
   const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
   async function checkForUpdates(force) {
-    const last = parseInt(localStorage.getItem('candak_last_update_check') || '0', 10);
+    const last = parseInt(localStorage.getItem(STORAGE_KEYS.LAST_UPDATE_CHECK) || '0', 10);
     if (!force && Date.now() - last < UPDATE_CHECK_INTERVAL_MS) return;
     try {
       const result = await CheckForUpdates();
-      localStorage.setItem('candak_last_update_check', String(Date.now()));
+      localStorage.setItem(STORAGE_KEYS.LAST_UPDATE_CHECK, String(Date.now()));
       updateCheck = result;
       updateError = '';
     } catch (err) {

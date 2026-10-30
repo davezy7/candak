@@ -1,4 +1,5 @@
 <script>
+  import { DOWNLOAD_STATUS } from './constants.js';
   import { 
     Activity, 
     Play, 
@@ -32,7 +33,7 @@
       filename: 'Fedora-Workstation-40-x86_64.iso',
       url: 'https://download.fedoraproject.org/pub/fedora/linux/releases/40/Workstation.iso',
       savePath: '/Users/diksha/Downloads/Fedora-Workstation-40.iso',
-      status: 'queued',
+      status: DOWNLOAD_STATUS.QUEUED,
       totalSize: 2200000000,
       downloadedSize: 0,
       speed: 0,
@@ -44,7 +45,7 @@
       filename: 'Debian-12.5.0-netinst.iso',
       url: 'https://cdimage.debian.org/debian-cd/current/amd64/iso-cd/debian-12.5.0.iso',
       savePath: '/Users/diksha/Downloads/debian-12.5.0.iso',
-      status: 'downloading',
+      status: DOWNLOAD_STATUS.DOWNLOADING,
       totalSize: 650000000,
       downloadedSize: 0,
       speed: 0,
@@ -56,7 +57,7 @@
       filename: 'ArchLinux-2024.10.01-x86_64.iso',
       url: 'https://geo.mirror.pkgbuild.com/iso/latest/archlinux-x86_64.iso',
       savePath: '/Users/diksha/Downloads/archlinux-x86_64.iso',
-      status: 'downloading',
+      status: DOWNLOAD_STATUS.DOWNLOADING,
       totalSize: 1100000000,
       downloadedSize: 154000000,
       speed: 840000,
@@ -68,7 +69,7 @@
       filename: 'Ubuntu-24.04-desktop-amd64.iso',
       url: 'https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso',
       savePath: '/Users/diksha/Downloads/ubuntu-24.04-desktop-amd64.iso',
-      status: 'downloading',
+      status: DOWNLOAD_STATUS.DOWNLOADING,
       totalSize: 5800000000,
       downloadedSize: 4930000000,
       speed: 24500000,
@@ -80,7 +81,7 @@
       filename: 'FreeCAD-0.21.2-macOS-arm64.dmg',
       url: 'https://github.com/FreeCAD/FreeCAD/releases/download/0.21.2/FreeCAD.dmg',
       savePath: '/Users/diksha/Downloads/FreeCAD-0.21.2.dmg',
-      status: 'paused',
+      status: DOWNLOAD_STATUS.PAUSED,
       totalSize: 320000000,
       downloadedSize: 64000000,
       speed: 0,
@@ -92,7 +93,7 @@
       filename: 'VSCode-darwin-universal.zip',
       url: 'https://update.code.visualstudio.com/latest/darwin-universal/stable',
       savePath: '/Users/diksha/Downloads/VSCode-darwin-universal.zip',
-      status: 'paused',
+      status: DOWNLOAD_STATUS.PAUSED,
       totalSize: 180000000,
       downloadedSize: 117000000,
       speed: 0,
@@ -104,7 +105,7 @@
       filename: 'Cosmos Laundromat – First Cycle (2015, 4K).mp4',
       url: 'https://download.blender.org/demo/movies/CosmosLaundromat.mp4',
       savePath: '/Users/diksha/Downloads/Cosmos Laundromat.mp4',
-      status: 'completed',
+      status: DOWNLOAD_STATUS.COMPLETED,
       totalSize: 1350000000,
       downloadedSize: 1350000000,
       speed: 0,
@@ -116,7 +117,7 @@
       filename: 'PostgreSQL-16.2-Source.tar.gz',
       url: 'https://ftp.postgresql.org/pub/source/v16.2/postgresql-16.2.tar.gz',
       savePath: '/Users/diksha/Downloads/postgresql-16.2.tar.gz',
-      status: 'completed',
+      status: DOWNLOAD_STATUS.COMPLETED,
       totalSize: 34500000,
       downloadedSize: 34500000,
       speed: 0,
@@ -128,7 +129,7 @@
       filename: 'NVIDIA-Driver-550.54.14-x86_64.run',
       url: 'https://us.download.nvidia.com/XFree86/Linux-x86_64/550.54.14/NVIDIA.run',
       savePath: '/Users/diksha/Downloads/NVIDIA-Driver.run',
-      status: 'error',
+      status: DOWNLOAD_STATUS.ERROR,
       errorMessage: 'HTTP 403 Forbidden: CDN token expired',
       totalSize: 420000000,
       downloadedSize: 12000000,
@@ -141,7 +142,7 @@
       filename: 'Linux-Kernel-6.8.0.tar.xz',
       url: 'https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.8.tar.xz',
       savePath: '/Users/diksha/Downloads/linux-6.8.tar.xz',
-      status: 'error',
+      status: DOWNLOAD_STATUS.ERROR,
       errorMessage: 'Connection timed out after 30s',
       totalSize: 145000000,
       downloadedSize: 78000000,
@@ -154,7 +155,7 @@
       filename: 'HugeDataDump_backup_2026.sql.gz',
       url: 'https://backup.corp.internal/dumps/2026.sql.gz',
       savePath: '/Users/diksha/Downloads/HugeDataDump.sql.gz',
-      status: 'cancelled',
+      status: DOWNLOAD_STATUS.CANCELLED,
       totalSize: 15400000000,
       downloadedSize: 320000000,
       speed: 0,
@@ -172,14 +173,14 @@
     if (isSimulating) {
       simTimer = setInterval(() => {
         downloads = downloads.map(d => {
-          if (d.status === 'downloading' && d.totalSize > 0) {
+          if (d.status === DOWNLOAD_STATUS.DOWNLOADING && d.totalSize > 0) {
             const increment = (d.speed > 0 ? d.speed : 5000000) * 0.4;
             const newDownloaded = Math.min(d.totalSize, d.downloadedSize + increment);
             const isFinished = newDownloaded >= d.totalSize;
             return {
               ...d,
               downloadedSize: newDownloaded,
-              status: isFinished ? 'completed' : 'downloading',
+              status: isFinished ? DOWNLOAD_STATUS.COMPLETED : DOWNLOAD_STATUS.DOWNLOADING,
               speed: isFinished ? 0 : (d.speed || 4500000),
               eta: isFinished ? 0 : Math.max(1, Math.round((d.totalSize - newDownloaded) / (d.speed || 4500000)))
             };

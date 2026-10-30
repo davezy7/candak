@@ -3,6 +3,8 @@
   import { EventsOn } from '@wails/runtime/runtime.js';
   import { DownloadUpdate, OpenFile, ShowInFolder } from '@wails/go/main/App.js';
   import { formatBytes, formatDate } from './formatters.js';
+  import { DOWNLOAD_STATUS, IPC_EVENTS } from './constants.js';
+  import { t } from './i18n/index.js';
   import {
     X,
     Download,
@@ -23,7 +25,7 @@
   let unlistenStatus = null;
 
   onMount(() => {
-    unlistenProgress = EventsOn('download:progress', (evt) => {
+    unlistenProgress = EventsOn(IPC_EVENTS.PROGRESS, (evt) => {
       if (download && evt.downloadId === download.id) {
         download = {
           ...download,
@@ -35,7 +37,7 @@
       }
     });
 
-    unlistenStatus = EventsOn('download:status_change', (dl) => {
+    unlistenStatus = EventsOn(IPC_EVENTS.STATUS_CHANGE, (dl) => {
       if (download && dl.id === download.id) {
         download = { ...download, ...dl };
       }
@@ -55,7 +57,7 @@
       download = await DownloadUpdate(check.assetUrl, check.assetName);
     } catch (err) {
       console.error('Failed to enqueue update download:', err);
-      downloadError = 'Could not start the download. Use the GitHub Releases link instead.';
+      downloadError = $t('modals.update.start_error');
     } finally {
       startingDownload = false;
     }
@@ -64,8 +66,8 @@
   $: progress = download && download.totalSize > 0
     ? Math.min(100, (download.downloadedSize / download.totalSize) * 100)
     : 0;
-  $: isCompleted = download?.status === 'completed';
-  $: isFailed = download?.status === 'error' || download?.status === 'cancelled';
+  $: isCompleted = download?.status === DOWNLOAD_STATUS.COMPLETED;
+  $: isFailed = download?.status === DOWNLOAD_STATUS.ERROR || download?.status === DOWNLOAD_STATUS.CANCELLED;
 
   // Minimal markdown rendering: escape first, then headings, bullets, bold and inline code.
   function renderMarkdown(md) {
@@ -113,11 +115,11 @@
             <Rocket size={20} strokeWidth={2.5} />
           </div>
           <div>
-            <h3 id="update-title" class="font-bold text-[var(--color-text)] text-base">Update Available</h3>
+            <h3 id="update-title" class="font-bold text-[var(--color-text)] text-base">{$t('modals.update.title')}</h3>
             <p class="text-xs text-[var(--color-secondary)]">
               v{check.latestVersion}
               {#if check.publishedAt}
-                • published {formatDate(check.publishedAt)}
+                • {$t('modals.update.published', { date: formatDate(check.publishedAt) })}
               {/if}
             </p>
           </div>
@@ -125,7 +127,7 @@
         <button
           on:click={onClose}
           class="text-[var(--color-secondary)] hover:text-[var(--color-text)] p-1.5 rounded-xl hover:bg-[var(--color-border)]/50 transition"
-          aria-label="Close update dialog"
+          aria-label={$t('modals.update.close_dialog')}
         >
           <X size={18} />
         </button>
@@ -133,11 +135,11 @@
 
       <!-- Release Notes -->
       <div class="p-6 overflow-y-auto flex-1 text-xs text-[var(--color-secondary)] leading-relaxed">
-        <div class="text-[11px] font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2">Release Notes</div>
+        <div class="text-[11px] font-bold text-[var(--color-secondary)] uppercase tracking-wider mb-2">{$t('modals.update.release_notes')}</div>
         {#if check.releaseNotes}
           {@html renderMarkdown(check.releaseNotes)}
         {:else}
-          <p>No release notes provided.</p>
+          <p>{$t('modals.update.no_notes')}</p>
         {/if}
       </div>
 
@@ -155,11 +157,11 @@
               class="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-bold rounded-xl shadow-sm hover:shadow transition active:scale-[0.98] disabled:opacity-50"
             >
               <Download size={15} strokeWidth={2.5} />
-              <span>{startingDownload ? 'Starting...' : 'Download Update via Candak'}</span>
+              <span>{startingDownload ? $t('modals.update.starting') : $t('modals.update.download_update')}</span>
             </button>
           {:else}
             <p class="text-[11px] text-[var(--color-secondary)] text-center">
-              No prebuilt installer for this platform in the release.
+              {$t('modals.update.no_installer')}
             </p>
           {/if}
           {#if check.releaseUrl}
@@ -168,13 +170,13 @@
               class="w-full flex items-center justify-center gap-1.5 px-4 py-2 text-[11px] font-semibold text-[var(--color-secondary)] hover:text-[var(--color-accent)] transition"
             >
               <ExternalLink size={12} />
-              <span>Open GitHub Releases</span>
+              <span>{$t('modals.update.open_github')}</span>
             </button>
           {/if}
         {:else if isCompleted}
           <div class="flex items-center gap-2 text-[11px] font-semibold text-emerald-500">
             <CheckCircle2 size={14} />
-            <span>Download Complete — Run Installer</span>
+            <span>{$t('modals.update.download_complete')}</span>
           </div>
           <div class="flex gap-2">
             <button
@@ -182,22 +184,22 @@
               class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs font-bold rounded-xl shadow-sm transition active:scale-[0.98]"
             >
               <Rocket size={15} strokeWidth={2.5} />
-              <span>Run Installer</span>
+              <span>{$t('modals.update.run_installer')}</span>
             </button>
             <button
               on:click={() => ShowInFolder(download.savePath)}
               class="px-4 py-2.5 flex items-center justify-center gap-2 text-xs font-semibold bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] border border-[var(--color-border)] rounded-xl transition"
-              title="Reveal in Finder / Explorer"
+              title={$t('modals.update.show_in_folder')}
             >
               <FolderOpen size={15} />
-              <span>Show in Folder</span>
+              <span>{$t('modals.update.show_in_folder')}</span>
             </button>
           </div>
         {:else}
           <div class="space-y-2">
             <div class="flex items-center justify-between text-[11px] font-semibold">
               <span class={isFailed ? 'text-rose-500' : 'text-[var(--color-text)]'}>
-                {isFailed ? (download.errorMessage || 'Download failed') : `Downloading ${check.assetName}...`}
+                {isFailed ? (download.errorMessage || $t('modals.update.download_failed')) : $t('modals.update.downloading_asset', { name: check.assetName })}
               </span>
               <span class="text-[var(--color-secondary)]">
                 {formatBytes(download.downloadedSize)} / {formatBytes(download.totalSize)}
@@ -210,7 +212,7 @@
               ></div>
             </div>
             <p class="text-[10px] text-[var(--color-secondary)]">
-              The download continues in the manager — you can close this window.
+              {$t('modals.update.background_hint')}
             </p>
           </div>
         {/if}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getExtensionBadge, getFolderPath, formatBytes } from './formatters.js';
+import { getExtensionBadge, getFolderPath, formatBytes, getFileCategory } from './formatters.js';
 
 test('getExtensionBadge returns uppercase extension', () => {
   assert.equal(getExtensionBadge('test.zip'), 'ZIP');
@@ -37,4 +37,22 @@ test('formatBytes formats sizes accurately', () => {
   assert.equal(formatBytes(0), '0 B');
   assert.equal(formatBytes(1024), '1 KB');
   assert.equal(formatBytes(1024 * 1024 * 1.5), '1.5 MB');
+});
+
+test('formatBytes respects locale decimal formatting', () => {
+  assert.equal(formatBytes(1024 * 1024 * 1.5, 1, 'en-US'), '1.5 MB');
+  assert.equal(formatBytes(1024 * 1024 * 1.5, 1, 'de-DE'), '1,5 MB');
+});
+
+test('getFileCategory categorizes filenames accurately', () => {
+  assert.equal(getFileCategory('report.pdf'), 'document');
+  assert.equal(getFileCategory('photo.png'), 'image');
+  assert.equal(getFileCategory('movie.mp4'), 'video');
+  assert.equal(getFileCategory('song.mp3'), 'audio');
+  assert.equal(getFileCategory('bundle.tar.gz'), 'archive');
+  assert.equal(getFileCategory('script.js'), 'code');
+  assert.equal(getFileCategory('installer.exe'), 'executable');
+  assert.equal(getFileCategory('unknown_file'), 'other');
+  assert.equal(getFileCategory(''), 'other');
+  assert.equal(getFileCategory('video.mkv?token=123'), 'video');
 });

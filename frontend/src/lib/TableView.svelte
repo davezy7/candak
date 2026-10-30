@@ -4,13 +4,20 @@
     formatSpeed, 
     formatETA, 
     formatDate,
-    getExtensionBadge
+    getExtensionBadge,
+    getFileCategory
   } from './formatters.js';
   import {
     sortDownloads,
     filterDownloads,
     updateSelection
   } from './tableUtils.js';
+  import {
+    DOWNLOAD_STATUS,
+    FILTER_MODE,
+    SORT_MODE
+  } from './constants.js';
+  import { t, locale } from './i18n/index.js';
   import { 
     Play, 
     Pause, 
@@ -23,13 +30,19 @@
     Settings, 
     History, 
     UploadCloud, 
-    Gauge, 
     ChevronDown,
     Check, 
     CheckSquare, 
     Square, 
     Copy, 
     FileText,
+    File,
+    FileCode,
+    Video,
+    Music,
+    Image,
+    Archive,
+    Cpu,
     AlertCircle,
     Clock,
     XCircle,
@@ -37,7 +50,7 @@
   } from 'lucide-svelte';
 
   export let downloads = [];
-  export let filter = 'all'; // 'all' | 'downloading' | 'completed' | 'paused'
+  export let filter = FILTER_MODE.ALL;
   export let onFilterChange = (f) => {};
   export let onOpenAdd = () => {};
   export let onOpenHistory = () => {};
@@ -55,8 +68,7 @@
   export let modalOpen = false;
 
   let searchQuery = '';
-  let sortBy = 'newest'; // 'newest' | 'oldest' | 'name' | 'size'
-  let isTurtleMode = false;
+  let sortBy = SORT_MODE.NEWEST;
   let isSortOpen = false;
   let isFilterOpen = false;
   let lastSelectedId = null;
@@ -75,11 +87,11 @@
   $: filteredList = sortDownloads(filterDownloads(downloads, filter, searchQuery), sortBy);
 
   // Aggregate metrics
-  $: totalDownloadSpeed = downloads.reduce((acc, d) => acc + (d.status === 'downloading' ? (d.speed || 0) : 0), 0);
-  $: activeCount = downloads.filter(d => d.status === 'downloading').length;
-  $: completedCount = downloads.filter(d => d.status === 'completed').length;
-  $: pausedCount = downloads.filter(d => d.status === 'paused').length;
-  $: latestActive = downloads.find(d => d.status === 'downloading') || downloads[0];
+  $: totalDownloadSpeed = downloads.reduce((acc, d) => acc + (d.status === DOWNLOAD_STATUS.DOWNLOADING ? (d.speed || 0) : 0), 0);
+  $: activeCount = downloads.filter(d => d.status === DOWNLOAD_STATUS.DOWNLOADING).length;
+  $: completedCount = downloads.filter(d => d.status === DOWNLOAD_STATUS.COMPLETED).length;
+  $: pausedCount = downloads.filter(d => d.status === DOWNLOAD_STATUS.PAUSED).length;
+  $: latestActive = downloads.find(d => d.status === DOWNLOAD_STATUS.DOWNLOADING) || downloads[0];
 
   function handleItemSelect(id, e, isCheckbox = false) {
     const res = updateSelection({
@@ -115,11 +127,11 @@
 
   function handleRowDoubleClick(dl) {
     closeContextMenu();
-    if (dl.status === 'completed') {
+    if (dl.status === DOWNLOAD_STATUS.COMPLETED) {
       onOpenFile(dl.id);
-    } else if (dl.status === 'downloading') {
+    } else if (dl.status === DOWNLOAD_STATUS.DOWNLOADING) {
       onPause(dl.id);
-    } else if (dl.status === 'paused') {
+    } else if (dl.status === DOWNLOAD_STATUS.PAUSED) {
       onResume(dl.id);
     }
   }
@@ -235,16 +247,16 @@
 
         <div class="flex items-center gap-2">
           <span class="font-bold text-xs text-[var(--color-text)]">
-            {selectedIds.size} {selectedIds.size === 1 ? 'download' : 'downloads'} selected
+            {$t('table.selection.selected_count', { count: selectedIds.size })}
           </span>
           <span class="text-zinc-400 dark:text-zinc-600">·</span>
           <button
             type="button"
             on:click={handleClearSelection}
             class="text-[11px] text-[var(--color-secondary)] hover:text-[var(--color-text)] underline cursor-pointer"
-            title="Deselect all (Esc)"
+            title="{$t('table.selection.deselect_esc')}"
           >
-            Deselect (Esc)
+            {$t('table.selection.deselect_esc')}
           </button>
         </div>
       </div>
@@ -255,40 +267,40 @@
           type="button"
           on:click={onBatchPause}
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text)] transition cursor-pointer"
-          title="Pause selected downloads"
+          title="{$t('table.actions.pause_batch', { count: selectedIds.size })}"
         >
-          <Pause size={13} class="text-amber-500" />
-          <span>Pause ({selectedIds.size})</span>
+          <Pause size={13} class="text-[var(--color-status-paused)]" />
+          <span>{$t('table.actions.pause_batch', { count: selectedIds.size })}</span>
         </button>
 
         <button
           type="button"
           on:click={onBatchResume}
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-text)] transition cursor-pointer"
-          title="Resume selected downloads"
+          title="{$t('table.actions.resume_batch', { count: selectedIds.size })}"
         >
           <Play size={13} class="text-[var(--color-accent)]" />
-          <span>Resume ({selectedIds.size})</span>
+          <span>{$t('table.actions.resume_batch', { count: selectedIds.size })}</span>
         </button>
 
         <button
           type="button"
           on:click={copySelectedUrls}
           class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold text-[var(--color-secondary)] hover:text-[var(--color-text)] transition cursor-pointer"
-          title="Copy URLs of selected downloads"
+          title="{$t('table.actions.copy_urls')}"
         >
           <Copy size={13} />
-          <span>Copy URLs</span>
+          <span>{$t('table.actions.copy_urls')}</span>
         </button>
 
         <button
           type="button"
           on:click={onBatchDelete}
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-xs font-semibold text-rose-500 transition cursor-pointer"
-          title="Delete selected downloads"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-xs font-semibold text-[var(--color-status-error)] transition cursor-pointer"
+          title="{$t('table.actions.delete_batch', { count: selectedIds.size })}"
         >
           <Trash2 size={13} />
-          <span>Delete ({selectedIds.size})...</span>
+          <span>{$t('table.actions.delete_batch', { count: selectedIds.size })}</span>
         </button>
 
         <div class="h-4 w-px bg-[var(--color-border)] mx-1"></div>
@@ -297,8 +309,8 @@
           type="button"
           on:click={handleClearSelection}
           class="p-1.5 rounded-lg text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)] transition cursor-pointer"
-          title="Exit multi-select mode (Esc)"
-          aria-label="Exit selection"
+          title="{$t('table.selection.exit_selection')}"
+          aria-label="{$t('table.selection.exit_selection')}"
         >
           <X size={15} />
         </button>
@@ -314,7 +326,7 @@
           type="button"
           on:click={handleSelectAllToggle}
           class="w-7 h-7 rounded-md border border-[var(--color-border)] hover:border-[var(--color-accent)] bg-[var(--color-bg)] flex items-center justify-center text-[var(--color-secondary)] hover:text-[var(--color-text)] transition cursor-pointer"
-          title="Select all"
+          title="{$t('table.selection.select_all')}"
         >
           {#if selectedIds.size > 0 && selectedIds.size === filteredList.length}
             <CheckSquare size={14} class="text-[var(--color-accent)]" />
@@ -333,19 +345,19 @@
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold transition cursor-pointer"
           >
             <ArrowUpDown size={13} class="text-[var(--color-secondary)]" />
-            <span class="capitalize">{sortBy}</span>
+            <span class="capitalize">{$t('table.sort.' + sortBy)}</span>
             <ChevronDown size={12} class="text-[var(--color-secondary)] opacity-70" />
           </button>
 
           {#if isSortOpen}
             <div class="absolute left-0 mt-1 w-32 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg z-30 text-xs">
-              {#each ['newest', 'oldest', 'name', 'size'] as opt}
+              {#each [SORT_MODE.NEWEST, SORT_MODE.OLDEST, SORT_MODE.NAME, SORT_MODE.SIZE] as opt}
                 <button
                   type="button"
                   on:click={() => { sortBy = opt; isSortOpen = false; }}
                   class="w-full text-left px-3 py-1.5 hover:bg-[var(--color-surface-hover)] capitalize flex items-center justify-between {sortBy === opt ? 'font-bold text-[var(--color-accent)]' : ''}"
                 >
-                  {opt}
+                  {$t('table.sort.' + opt)}
                   {#if sortBy === opt}<Check size={12} />{/if}
                 </button>
               {/each}
@@ -361,17 +373,17 @@
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] text-xs font-semibold transition cursor-pointer"
           >
             <Filter size={13} class="text-[var(--color-secondary)]" />
-            <span class="capitalize">{filter === 'all' ? 'All files' : filter}</span>
+            <span class="capitalize">{filter === FILTER_MODE.ALL ? $t('table.navigation.all_files_count', { count: downloads.length }) : $t('status.' + filter)}</span>
             <ChevronDown size={12} class="text-[var(--color-secondary)] opacity-70" />
           </button>
 
           {#if isFilterOpen}
-            <div class="absolute left-0 mt-1 w-36 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg z-30 text-xs">
+            <div class="absolute left-0 mt-1 w-44 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg z-30 text-xs">
               {#each [
-                { id: 'all', label: `All files (${downloads.length})` },
-                { id: 'downloading', label: `Downloading (${activeCount})` },
-                { id: 'completed', label: `Completed (${completedCount})` },
-                { id: 'paused', label: `Paused (${pausedCount})` }
+                { id: FILTER_MODE.ALL, label: $t('table.navigation.all_files_count', { count: downloads.length }) },
+                { id: FILTER_MODE.DOWNLOADING, label: $t('table.navigation.downloading_count', { count: activeCount }) },
+                { id: FILTER_MODE.COMPLETED, label: $t('table.navigation.completed_count', { count: completedCount }) },
+                { id: FILTER_MODE.PAUSED, label: $t('table.navigation.paused_count', { count: pausedCount }) }
               ] as f}
                 <button
                   type="button"
@@ -387,7 +399,7 @@
         </div>
       </div>
 
-      <!-- Center/Right controls: + Add Download, Search, Modals -->
+      <!-- Center/Right controls: Search, Modals -->
       <div class="flex items-center gap-2.5 flex-1 max-w-xl justify-end">
         <!-- Search Bar -->
         <div class="relative w-56 sm:w-64">
@@ -395,7 +407,7 @@
           <input
             type="text"
             bind:value={searchQuery}
-            placeholder="Search in downloads..."
+            placeholder="{$t('table.navigation.search_placeholder')}"
             class="w-full pl-8 pr-3 py-1.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-xs placeholder:text-[var(--color-secondary)] focus:outline-none focus:border-[var(--color-accent)] transition"
           />
           {#if searchQuery}
@@ -414,7 +426,7 @@
           type="button"
           on:click={onOpenHistory}
           class="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] text-[var(--color-secondary)] hover:text-[var(--color-text)] transition cursor-pointer"
-          title="Download History"
+          title="{$t('table.navigation.history_title')}"
         >
           <History size={15} />
         </button>
@@ -424,7 +436,7 @@
           type="button"
           on:click={onOpenSettings}
           class="p-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] text-[var(--color-secondary)] hover:text-[var(--color-text)] transition cursor-pointer"
-          title="Settings"
+          title="{$t('table.navigation.settings_title')}"
         >
           <Settings size={15} />
         </button>
@@ -436,29 +448,30 @@
   <main class="flex-1 overflow-y-auto px-5 py-2 flex flex-col justify-between">
     <div class="w-full">
       <!-- Table Header Row -->
-      <div class="grid grid-cols-[28px_32px_minmax(180px,1.8fr)_80px_160px_90px_80px_90px_60px] gap-2 px-3 py-2 text-[11px] font-semibold text-[var(--color-secondary)] border-b border-[var(--color-border)] tracking-wider">
+      <div class="grid grid-cols-[28px_32px_minmax(180px,1.8fr)_80px_160px_90px_80px_90px_76px] gap-2 px-3 py-2 text-[11px] font-semibold text-[var(--color-secondary)] border-b border-[var(--color-border)] tracking-wider">
         <div></div>
-        <div>#</div>
-        <div>Name</div>
-        <div>Size</div>
-        <div>Status</div>
-        <div>Download</div>
-        <div>ETA</div>
-        <div>Added</div>
-        <div class="text-right">Actions</div>
+        <div></div>
+        <div>{$t('table.columns.name')}</div>
+        <div>{$t('table.columns.size')}</div>
+        <div>{$t('table.columns.status')}</div>
+        <div>{$t('table.columns.speed')}</div>
+        <div>{$t('table.columns.eta')}</div>
+        <div>{$t('table.columns.added')}</div>
+        <div class="text-right">{$t('table.columns.actions')}</div>
       </div>
 
       <!-- Table Body Rows -->
       {#if filteredList.length === 0}
         <div class="py-16 text-center text-xs text-[var(--color-secondary)]">
-          <p class="font-medium text-sm text-[var(--color-text)]">No downloads found</p>
-          <p class="mt-1">Add a URL or drag and drop a file into the zone below.</p>
+          <p class="font-medium text-sm text-[var(--color-text)]">{$t('table.empty.title')}</p>
+          <p class="mt-1">{$t('table.empty.subtitle')}</p>
         </div>
       {:else}
         <div class="divide-y divide-[var(--color-border)]/60">
           {#each filteredList as dl, index (dl.id)}
             {@const isSelected = selectedIds.has(dl.id)}
             {@const pct = getProgress(dl)}
+            {@const cat = getFileCategory(dl.filename, dl.savePath)}
 
             <div 
               class="group transition-colors {
@@ -474,7 +487,7 @@
               on:contextmenu={(e) => handleContextMenu(dl, e)}
             >
               <!-- Main Row Grid -->
-              <div class="grid grid-cols-[28px_32px_minmax(180px,1.8fr)_80px_160px_90px_80px_90px_60px] gap-2 px-3 py-2.5 items-center text-xs cursor-pointer">
+              <div class="grid grid-cols-[28px_32px_minmax(180px,1.8fr)_80px_160px_90px_80px_90px_76px] gap-2 px-3 py-2.5 items-center text-xs cursor-pointer">
                 <!-- Checkbox -->
                 <div>
                   <button
@@ -485,7 +498,7 @@
                         ? 'bg-[var(--color-accent)] border-[var(--color-accent)] text-white' 
                         : 'border-[var(--color-border)] hover:border-[var(--color-accent)] bg-[var(--color-bg)]'
                     }"
-                    title={isSelected ? "Deselect" : "Select"}
+                    title={isSelected ? $t('table.row_actions.deselect') : $t('table.row_actions.select')}
                   >
                     {#if isSelected}
                       <Check size={11} strokeWidth={3} />
@@ -493,53 +506,24 @@
                   </button>
                 </div>
 
-                <!-- Status / Play / Pause inline icon -->
-                <div class="flex items-center justify-center">
-                  {#if dl.status === 'downloading'}
-                    {#if dl.speed === 0 && (!dl.downloadedSize || dl.downloadedSize === 0)}
-                      <span class="w-2.5 h-2.5 rounded-full bg-[var(--color-accent)] animate-ping" title="Connecting..."></span>
-                    {:else}
-                      <button
-                        type="button"
-                        on:click|stopPropagation={() => onPause(dl.id)}
-                        class="text-[var(--color-accent)] hover:opacity-80 transition cursor-pointer"
-                        title="Pause"
-                      >
-                        <Pause size={14} class="fill-current" />
-                      </button>
-                    {/if}
-                  {:else if dl.status === 'paused'}
-                    <button
-                      type="button"
-                      on:click|stopPropagation={() => onResume(dl.id)}
-                      class="text-amber-500 hover:opacity-80 transition cursor-pointer"
-                      title="Resume"
-                    >
-                      <Play size={14} class="fill-current" />
-                    </button>
-                  {:else if dl.status === 'completed'}
-                    <button
-                      type="button"
-                      on:click|stopPropagation={() => onOpenFile(dl.id)}
-                      class="text-[var(--color-secondary)] hover:text-[var(--color-accent)] transition cursor-pointer"
-                      title="Open file"
-                    >
-                      <Folder size={14} class="text-[var(--color-accent)]/80 fill-[var(--color-accent)]/20" />
-                    </button>
-                  {:else if dl.status === 'queued'}
-                    <span title="Queued">
-                      <Clock size={13} class="text-sky-400" />
-                    </span>
-                  {:else if dl.status === 'error'}
-                    <span title={dl.errorMessage || dl.error || 'Download failed'}>
-                      <AlertCircle size={13} class="text-rose-500" />
-                    </span>
-                  {:else if dl.status === 'cancelled'}
-                    <span title="Download cancelled">
-                      <XCircle size={13} class="text-zinc-500" />
-                    </span>
+                <!-- File Type Icon -->
+                <div class="flex items-center justify-center text-[var(--color-secondary)]" title={cat}>
+                  {#if cat === 'video'}
+                    <Video size={15} class="text-rose-500 dark:text-rose-400" />
+                  {:else if cat === 'audio'}
+                    <Music size={15} class="text-amber-500 dark:text-amber-400" />
+                  {:else if cat === 'image'}
+                    <Image size={15} class="text-emerald-500 dark:text-emerald-400" />
+                  {:else if cat === 'document'}
+                    <FileText size={15} class="text-sky-500 dark:text-sky-400" />
+                  {:else if cat === 'archive'}
+                    <Archive size={15} class="text-purple-500 dark:text-purple-400" />
+                  {:else if cat === 'code'}
+                    <FileCode size={15} class="text-teal-500 dark:text-teal-400" />
+                  {:else if cat === 'executable'}
+                    <Cpu size={15} class="text-orange-500 dark:text-orange-400" />
                   {:else}
-                    <span class="w-1.5 h-1.5 rounded-full bg-zinc-400"></span>
+                    <File size={15} />
                   {/if}
                 </div>
 
@@ -555,15 +539,15 @@
 
                 <!-- Size -->
                 <div class="text-[var(--color-secondary)] font-mono text-[11px] truncate">
-                  {formatBytes(dl.totalSize || dl.downloadedSize)}
+                  {formatBytes(dl.totalSize || dl.downloadedSize, 1, $locale)}
                 </div>
 
                 <!-- Status column with progress bar -->
                 <div class="flex items-center gap-2">
-                  {#if dl.status === 'downloading'}
+                  {#if dl.status === DOWNLOAD_STATUS.DOWNLOADING}
                     {#if dl.speed === 0 && (!dl.downloadedSize || dl.downloadedSize === 0)}
                       <span class="text-[var(--color-accent)] font-semibold text-[11px] animate-pulse">
-                        Connecting...
+                        {$t('status.connecting')}
                       </span>
                     {:else}
                       <div class="flex-1 h-2 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
@@ -576,25 +560,25 @@
                         {pct.toFixed(0)}%
                       </span>
                     {/if}
-                  {:else if dl.status === 'completed'}
-                    <span class="text-emerald-500 dark:text-emerald-400 font-semibold text-[11px] flex items-center gap-1">
-                      <Check size={12} strokeWidth={2.5} /> Completed
+                  {:else if dl.status === DOWNLOAD_STATUS.COMPLETED}
+                    <span class="text-[var(--color-status-completed)] font-semibold text-[11px] flex items-center gap-1">
+                      <Check size={12} strokeWidth={2.5} /> {$t('status.completed')}
                     </span>
-                  {:else if dl.status === 'paused'}
-                    <span class="text-amber-500 font-medium text-[11px]">
-                      Paused ({pct.toFixed(0)}%)
+                  {:else if dl.status === DOWNLOAD_STATUS.PAUSED}
+                    <span class="text-[var(--color-status-paused)] font-medium text-[11px]">
+                      {$t('status.paused')} ({pct.toFixed(0)}%)
                     </span>
-                  {:else if dl.status === 'queued'}
-                    <span class="text-sky-500 dark:text-sky-400 font-medium text-[11px]">
-                      Queued
+                  {:else if dl.status === DOWNLOAD_STATUS.QUEUED}
+                    <span class="text-[var(--color-status-queued)] font-medium text-[11px]">
+                      {$t('status.queued')}
                     </span>
-                  {:else if dl.status === 'error'}
-                    <span class="text-rose-500 font-medium text-[11px] truncate max-w-[150px]" title={dl.errorMessage || dl.error || 'Error'}>
-                      {dl.errorMessage || dl.error || 'Error'}
+                  {:else if dl.status === DOWNLOAD_STATUS.ERROR}
+                    <span class="text-[var(--color-status-error)] font-medium text-[11px] truncate max-w-[150px]" title={dl.errorMessage || dl.error || $t('status.error')}>
+                      {dl.errorMessage || dl.error || $t('status.error')}
                     </span>
-                  {:else if dl.status === 'cancelled'}
-                    <span class="text-zinc-500 font-medium text-[11px]">
-                      Cancelled
+                  {:else if dl.status === DOWNLOAD_STATUS.CANCELLED}
+                    <span class="text-[var(--color-status-cancelled)] font-medium text-[11px]">
+                      {$t('status.cancelled')}
                     </span>
                   {:else}
                     <span class="text-[var(--color-secondary)] text-[11px] capitalize">{dl.status}</span>
@@ -603,9 +587,9 @@
 
                 <!-- Download Speed -->
                 <div class="font-mono text-[11px] text-[var(--color-text)] truncate">
-                  {#if dl.status === 'downloading'}
+                  {#if dl.status === DOWNLOAD_STATUS.DOWNLOADING}
                     {#if dl.speed > 0}
-                      {formatSpeed(dl.speed)}
+                      {formatSpeed(dl.speed, $locale)}
                     {:else}
                       <span class="text-[var(--color-secondary)]">0 B/s</span>
                     {/if}
@@ -616,29 +600,57 @@
 
                 <!-- ETA -->
                 <div class="font-mono text-[11px] text-[var(--color-secondary)] truncate">
-                  {dl.status === 'downloading' && dl.eta > 0 ? formatETA(dl.eta).replace(' remaining', '') : '—'}
+                  {dl.status === DOWNLOAD_STATUS.DOWNLOADING && dl.eta > 0 ? formatETA(dl.eta).replace(' remaining', '') : '—'}
                 </div>
 
                 <!-- Added date -->
                 <div class="text-[11px] text-[var(--color-secondary)] truncate">
-                  {formatDate(dl.createdAt || dl.addedAt) || 'Today'}
+                  {formatDate(dl.createdAt || dl.addedAt, $locale) || $t('common.today')}
                 </div>
 
                 <!-- Actions Menu -->
                 <div class="flex items-center justify-end gap-1">
+                  {#if dl.status === DOWNLOAD_STATUS.DOWNLOADING}
+                    <button
+                      type="button"
+                      on:click|stopPropagation={() => onPause(dl.id)}
+                      class="p-1 rounded text-[var(--color-status-paused)] hover:opacity-80 transition cursor-pointer"
+                      title="{$t('table.row_actions.pause')}"
+                    >
+                      <Pause size={13} class="fill-current" />
+                    </button>
+                  {:else if dl.status === DOWNLOAD_STATUS.PAUSED}
+                    <button
+                      type="button"
+                      on:click|stopPropagation={() => onResume(dl.id)}
+                      class="p-1 rounded text-[var(--color-accent)] hover:opacity-80 transition cursor-pointer"
+                      title="{$t('table.row_actions.resume')}"
+                    >
+                      <Play size={13} class="fill-current" />
+                    </button>
+                  {:else if dl.status === DOWNLOAD_STATUS.COMPLETED}
+                    <button
+                      type="button"
+                      on:click|stopPropagation={() => onOpenFile(dl.id)}
+                      class="p-1 rounded text-[var(--color-secondary)] hover:text-[var(--color-accent)] transition cursor-pointer"
+                      title="{$t('table.row_actions.open_file')}"
+                    >
+                      <Folder size={13} class="text-[var(--color-accent)]" />
+                    </button>
+                  {/if}
                   <button
                     type="button"
                     on:click|stopPropagation={() => onShowInFolder(dl.id)}
                     class="p-1 rounded text-[var(--color-secondary)] hover:text-[var(--color-accent)] hover:bg-[var(--color-bg)] transition cursor-pointer"
-                    title="Show in folder"
+                    title="{$t('table.row_actions.show_folder')}"
                   >
                     <Folder size={13} />
                   </button>
                   <button
                     type="button"
                     on:click|stopPropagation={() => onDelete(dl.id)}
-                    class="p-1 rounded text-[var(--color-secondary)] hover:text-rose-500 hover:bg-rose-500/10 transition cursor-pointer"
-                    title="Delete"
+                    class="p-1 rounded text-[var(--color-secondary)] hover:text-[var(--color-status-error)] hover:bg-rose-500/10 transition cursor-pointer"
+                    title="{$t('table.row_actions.delete')}"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -657,52 +669,32 @@
       class="mt-6 mb-2 mx-1 p-5 rounded-xl border-2 border-dashed border-[var(--color-border)] hover:border-[var(--color-accent)]/60 bg-[var(--color-surface)]/50 hover:bg-[var(--color-surface)] flex flex-col items-center justify-center gap-1.5 text-xs text-[var(--color-secondary)] hover:text-[var(--color-text)] transition cursor-pointer group w-[calc(100%-8px)]"
     >
       <UploadCloud size={20} class="text-[var(--color-secondary)] group-hover:text-[var(--color-accent)] group-hover:scale-110 transition" />
-      <span class="font-medium">Drag-and-drop URL or file to download</span>
+      <span class="font-medium">{$t('table.drop_zone.title')}</span>
     </button>
   </main>
 
   <!-- Aggregate Status Bar (Bottom Desktop Bar) -->
   <footer class="px-5 py-2 border-t border-[var(--color-border)] bg-[var(--color-surface)] shrink-0 flex items-center justify-between text-xs font-mono">
-    <!-- Left: Turtle / Speed mode & total download rate -->
+    <!-- Left: Global speed & active tasks -->
     <div class="flex items-center gap-3">
-      <!-- Turtle mode toggle -->
-      <button
-        type="button"
-        on:click={() => isTurtleMode = !isTurtleMode}
-        class="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer {
-          isTurtleMode 
-            ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' 
-            : 'bg-[var(--color-bg)] text-[var(--color-secondary)] border-[var(--color-border)] hover:text-[var(--color-text)]'
-        }"
-        title="Toggle speed limit (Turtle mode)"
-      >
-        <Gauge size={11} />
-        <span>{isTurtleMode ? 'LIMIT ON' : 'LIMIT OFF'}</span>
-      </button>
-
       <!-- Global speed -->
       <div class="flex items-center gap-1.5 text-[var(--color-text)] font-semibold">
         <span class="text-[var(--color-accent)] font-bold">↓</span>
-        <span>{formatSpeed(totalDownloadSpeed)}</span>
+        <span>{formatSpeed(totalDownloadSpeed, $locale)}</span>
       </div>
 
       <!-- Active tasks -->
       <div class="text-[var(--color-secondary)] text-[11px]">
-        {activeCount} active · {completedCount} done
+        {$t('table.footer.active_done_summary', { active: activeCount, done: completedCount })}
       </div>
-
-      <!-- Priority badge -->
-      <span class="px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-emerald-500/15 text-emerald-500 dark:text-emerald-400">
-        HIGH
-      </span>
     </div>
 
     <!-- Right: Current active file summary -->
     <div class="text-[11px] text-[var(--color-secondary)] truncate max-w-sm">
-      {#if latestActive && latestActive.status === 'downloading'}
+      {#if latestActive && latestActive.status === DOWNLOAD_STATUS.DOWNLOADING}
         <span class="text-[var(--color-text)] font-sans truncate">{latestActive.filename}</span>
       {:else}
-        <span>All background streams idle</span>
+        <span>{$t('table.footer.idle_message')}</span>
       {/if}
     </div>
   </footer>
@@ -729,7 +721,7 @@
       {#if contextMenu.isBatch}
         <!-- Multi-select Batch Actions -->
         <div class="px-3 py-1 text-[11px] font-semibold text-[var(--color-secondary)] border-b border-[var(--color-border)]/50 mb-1">
-          {selectedIds.size} downloads selected
+          {$t('context_menu.selected_count', { count: selectedIds.size })}
         </div>
 
         <button 
@@ -737,8 +729,8 @@
           on:click={() => { onBatchPause(); closeContextMenu(); }}
           class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] transition cursor-pointer"
         >
-          <Pause size={13} class="text-amber-500" />
-          <span>Pause Selected ({selectedIds.size})</span>
+          <Pause size={13} class="text-[var(--color-status-paused)]" />
+          <span>{$t('context_menu.pause_selected', { count: selectedIds.size })}</span>
         </button>
 
         <button 
@@ -747,7 +739,7 @@
           class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] transition cursor-pointer"
         >
           <Play size={13} class="text-[var(--color-accent)]" />
-          <span>Resume Selected ({selectedIds.size})</span>
+          <span>{$t('context_menu.resume_selected', { count: selectedIds.size })}</span>
         </button>
 
         <button 
@@ -756,7 +748,7 @@
           class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-secondary)] hover:text-[var(--color-text)] transition cursor-pointer"
         >
           <Copy size={13} />
-          <span>Copy Selected URLs</span>
+          <span>{$t('context_menu.copy_selected_urls')}</span>
         </button>
 
         <div class="h-px bg-[var(--color-border)]/60 my-1"></div>
@@ -764,21 +756,21 @@
         <button 
           type="button"
           on:click={() => { onBatchDelete(); closeContextMenu(); }}
-          class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-rose-500/10 text-rose-500 font-medium transition cursor-pointer"
+          class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-rose-500/10 text-[var(--color-status-error)] font-medium transition cursor-pointer"
         >
           <Trash2 size={13} />
-          <span>Delete Selected ({selectedIds.size})...</span>
+          <span>{$t('context_menu.delete_selected', { count: selectedIds.size })}</span>
         </button>
       {:else if contextMenu.download}
         <!-- Single Item Actions -->
-        {#if contextMenu.download.status === 'completed'}
+        {#if contextMenu.download.status === DOWNLOAD_STATUS.COMPLETED}
           <button 
             type="button"
             on:click={() => { onOpenFile(contextMenu.download.id); closeContextMenu(); }}
             class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] font-semibold transition cursor-pointer"
           >
             <Folder size={13} class="text-[var(--color-accent)]" />
-            <span>Open File</span>
+            <span>{$t('context_menu.open_file')}</span>
           </button>
 
           <button 
@@ -787,16 +779,16 @@
             class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] transition cursor-pointer"
           >
             <Folder size={13} class="text-[var(--color-secondary)]" />
-            <span>Reveal in Folder</span>
+            <span>{$t('context_menu.reveal_folder')}</span>
           </button>
-        {:else if contextMenu.download.status === 'downloading'}
+        {:else if contextMenu.download.status === DOWNLOAD_STATUS.DOWNLOADING}
           <button 
             type="button"
             on:click={() => { onPause(contextMenu.download.id); closeContextMenu(); }}
             class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] font-semibold transition cursor-pointer"
           >
-            <Pause size={13} class="text-amber-500" />
-            <span>Pause Download</span>
+            <Pause size={13} class="text-[var(--color-status-paused)]" />
+            <span>{$t('context_menu.pause_download')}</span>
           </button>
 
           <button 
@@ -805,16 +797,16 @@
             class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] transition cursor-pointer"
           >
             <Folder size={13} class="text-[var(--color-secondary)]" />
-            <span>Show in Folder</span>
+            <span>{$t('context_menu.show_in_folder')}</span>
           </button>
-        {:else if contextMenu.download.status === 'paused'}
+        {:else if contextMenu.download.status === DOWNLOAD_STATUS.PAUSED}
           <button 
             type="button"
             on:click={() => { onResume(contextMenu.download.id); closeContextMenu(); }}
             class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] font-semibold transition cursor-pointer"
           >
             <Play size={13} class="text-[var(--color-accent)]" />
-            <span>Resume Download</span>
+            <span>{$t('context_menu.resume_download')}</span>
           </button>
 
           <button 
@@ -823,7 +815,7 @@
             class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-text)] transition cursor-pointer"
           >
             <Folder size={13} class="text-[var(--color-secondary)]" />
-            <span>Show in Folder</span>
+            <span>{$t('context_menu.show_in_folder')}</span>
           </button>
         {/if}
 
@@ -835,7 +827,7 @@
           class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-secondary)] hover:text-[var(--color-text)] transition cursor-pointer"
         >
           <Copy size={13} />
-          <span>Copy Download URL</span>
+          <span>{$t('context_menu.copy_download_url')}</span>
         </button>
 
         <button 
@@ -844,7 +836,7 @@
           class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-[var(--color-surface-hover)] text-[var(--color-secondary)] hover:text-[var(--color-text)] transition cursor-pointer"
         >
           <FileText size={13} />
-          <span>Copy File Path</span>
+          <span>{$t('context_menu.copy_file_path')}</span>
         </button>
 
         <div class="h-px bg-[var(--color-border)]/60 my-1"></div>
@@ -852,10 +844,10 @@
         <button 
           type="button"
           on:click={() => { onDelete(contextMenu.download.id); closeContextMenu(); }}
-          class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-rose-500/10 text-rose-500 font-medium transition cursor-pointer"
+          class="w-full px-3 py-1.5 text-left flex items-center gap-2 hover:bg-rose-500/10 text-[var(--color-status-error)] font-medium transition cursor-pointer"
         >
           <Trash2 size={13} />
-          <span>Delete Download</span>
+          <span>{$t('context_menu.delete_download')}</span>
         </button>
       {/if}
     </div>

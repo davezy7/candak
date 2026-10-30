@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { GetURLHistory, ClearURLHistory, DeleteURLHistoryItem, SuppressClipboardURL } from '@wails/go/main/App.js';
   import { formatDate } from './formatters.js';
+  import { t } from './i18n/index.js';
   import ConfirmModal from './ConfirmModal.svelte';
   import { X, History, Trash2, DownloadCloud, Copy, Check } from 'lucide-svelte';
 
@@ -103,8 +104,8 @@
             <History size={20} strokeWidth={2.5} />
           </div>
           <div>
-            <h3 id="history-modal-title" class="font-bold text-[var(--color-text)] text-base">URL History</h3>
-            <p class="text-xs text-[var(--color-secondary)]">Past download targets</p>
+            <h3 id="history-modal-title" class="font-bold text-[var(--color-text)] text-base">{$t('modals.history.title')}</h3>
+            <p class="text-xs text-[var(--color-secondary)]">{$t('modals.history.subtitle')}</p>
           </div>
         </div>
         <div class="flex items-center gap-2">
@@ -114,13 +115,13 @@
               class="px-3 py-1.5 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-500/10 border border-rose-500/30 rounded-xl transition flex items-center gap-1.5 font-medium"
             >
               <Trash2 size={13} />
-              Clear All
+              {$t('modals.history.clear_all')}
             </button>
           {/if}
           <button 
             on:click={onClose}
             class="text-[var(--color-secondary)] hover:text-[var(--color-text)] p-1.5 rounded-xl hover:bg-[var(--color-border)]/50 transition"
-            aria-label="Close dialog"
+            aria-label={$t('modals.history.close_dialog')}
           >
             <X size={18} />
           </button>
@@ -132,27 +133,27 @@
         {#if isLoading}
           <div class="py-12 text-center text-[var(--color-secondary)] text-xs">
             <span class="inline-block w-5 h-5 border-2 border-[var(--color-accent)] border-t-transparent rounded-full animate-spin mb-2"></span>
-            <div>Loading history...</div>
+            <div>{$t('modals.history.loading')}</div>
           </div>
         {:else if historyItems.length === 0}
           <div class="py-16 text-center text-[var(--color-secondary)] text-xs">
             <History size={36} class="mx-auto mb-2 opacity-40 text-[var(--color-secondary)]" />
-            <div class="font-medium">No previous downloads in history yet.</div>
+            <div class="font-medium">{$t('modals.history.empty')}</div>
           </div>
         {:else}
           {#each historyItems as item}
             <div class="p-4 bg-[var(--color-bg)] hover:opacity-90 border border-[var(--color-border)] rounded-2xl flex items-center justify-between gap-4 transition group">
               <div class="min-w-0 flex-1">
                 <div class="font-bold text-sm text-[var(--color-text)] truncate">
-                  {item.filename || 'Unknown filename'}
+                  {item.filename || $t('modals.history.unknown_filename')}
                 </div>
                 <div class="text-xs font-mono text-[var(--color-accent)] truncate mt-0.5">
                   {item.url}
                 </div>
                 <div class="text-[11px] text-[var(--color-secondary)] mt-1.5 flex items-center gap-3">
-                  <span>Last downloaded: {formatDate(item.lastUsedAt)}</span>
+                  <span>{$t('modals.history.last_downloaded', { date: formatDate(item.lastUsedAt) })}</span>
                   <span>•</span>
-                  <span>Downloaded {item.downloadCount} {item.downloadCount === 1 ? 'time' : 'times'}</span>
+                  <span>{$t('modals.history.download_count', { count: item.downloadCount })}</span>
                 </div>
               </div>
 
@@ -160,8 +161,8 @@
                 <button 
                   on:click={() => copyToClipboard(item)}
                   class="p-2 text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)] rounded-xl border border-transparent hover:border-[var(--color-border)] shadow-2xs transition"
-                  title="Copy URL"
-                  aria-label="Copy URL"
+                  title={$t('modals.history.copy_url')}
+                  aria-label={$t('modals.history.copy_url')}
                 >
                   {#if copiedId === item.id}
                     <Check size={16} class="text-[var(--color-accent)]" strokeWidth={2.5} />
@@ -174,13 +175,13 @@
                   class="px-3 py-1.5 text-xs font-semibold bg-[var(--color-accent-subtle)] hover:bg-[var(--color-accent)] text-[var(--color-accent)] hover:text-white rounded-xl transition flex items-center gap-1.5 shadow-2xs"
                 >
                   <DownloadCloud size={14} />
-                  Download
+                  {$t('modals.history.download')}
                 </button>
                 <button 
                   on:click={() => handleDeleteItem(item)}
                   class="p-2 text-[var(--color-secondary)] hover:text-rose-500 hover:bg-rose-500/10 rounded-xl transition"
-                  title="Delete from history"
-                  aria-label="Delete from history"
+                  title={$t('modals.history.delete_from_history')}
+                  aria-label={$t('modals.history.delete_from_history')}
                 >
                   <Trash2 size={16} />
                 </button>
@@ -194,19 +195,19 @@
 
   <ConfirmModal
     isOpen={!!itemToDelete}
-    title="Delete History Item"
-    message="Are you sure you want to remove this URL from your history?"
+    title={$t('modals.history.delete_item_title')}
+    message={$t('modals.history.delete_item_message')}
     submessage={itemToDelete?.url}
-    confirmText="Delete"
+    confirmText={$t('common.delete')}
     onConfirm={confirmDeleteItem}
     onCancel={() => (itemToDelete = null)}
   />
 
   <ConfirmModal
     isOpen={isClearAllModalOpen}
-    title="Clear All History"
-    message="Are you sure you want to clear all recorded URL download history? This cannot be undone."
-    confirmText="Clear All"
+    title={$t('modals.history.clear_all_title')}
+    message={$t('modals.history.clear_all_message')}
+    confirmText={$t('modals.history.clear_all')}
     onConfirm={confirmClearAll}
     onCancel={() => (isClearAllModalOpen = false)}
   />

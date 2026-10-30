@@ -1,18 +1,19 @@
 /**
  * Pure utility functions for TableView: sorting, filtering, selection.
  */
+import { DOWNLOAD_STATUS, FILTER_MODE, SORT_MODE } from './constants.js';
 
-export function sortDownloads(list, sortBy = 'newest') {
+export function sortDownloads(list, sortBy = SORT_MODE.NEWEST) {
   return [...list].sort((a, b) => {
-    if (sortBy === 'name') {
+    if (sortBy === SORT_MODE.NAME) {
       return (a.filename || '').localeCompare(b.filename || '');
     }
-    if (sortBy === 'size') {
+    if (sortBy === SORT_MODE.SIZE) {
       return (b.totalSize || 0) - (a.totalSize || 0);
     }
     const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
     const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    if (sortBy === 'oldest') {
+    if (sortBy === SORT_MODE.OLDEST) {
       if (timeA !== timeB) return timeA - timeB;
       return String(a.id || '').localeCompare(String(b.id || ''));
     }
@@ -22,12 +23,12 @@ export function sortDownloads(list, sortBy = 'newest') {
   });
 }
 
-export function filterDownloads(list, filter = 'all', searchQuery = '') {
+export function filterDownloads(list, filter = FILTER_MODE.ALL, searchQuery = '') {
   return list
     .filter(d => {
-      if (filter === 'downloading') return d.status === 'downloading';
-      if (filter === 'completed') return d.status === 'completed';
-      if (filter === 'paused') return d.status === 'paused';
+      if (filter === FILTER_MODE.DOWNLOADING) return d.status === DOWNLOAD_STATUS.DOWNLOADING;
+      if (filter === FILTER_MODE.COMPLETED) return d.status === DOWNLOAD_STATUS.COMPLETED;
+      if (filter === FILTER_MODE.PAUSED) return d.status === DOWNLOAD_STATUS.PAUSED;
       return true;
     })
     .filter(d => {

@@ -1,18 +1,25 @@
 <script>
   import { X, AlertTriangle } from 'lucide-svelte';
+  import { t } from './i18n/index.js';
 
   export let isOpen = false;
-  export let title = 'Confirm Action';
-  export let message = 'Are you sure you want to proceed?';
+  export let title = '';
+  export let message = '';
   export let submessage = '';
-  export let confirmText = 'Delete';
-  export let cancelText = 'Cancel';
+  export let confirmText = '';
+  export let cancelText = '';
   export let danger = true;
   export let showCheckbox = false;
-  export let checkboxLabel = 'Also delete file from disk';
+  export let checkboxLabel = '';
   export let checkboxChecked = false;
   export let onConfirm = () => {};
   export let onCancel = () => {};
+
+  $: resolvedTitle = title || $t('modals.confirm.title');
+  $: resolvedMessage = message || $t('modals.confirm.message');
+  $: resolvedConfirmText = confirmText || (danger ? $t('common.delete') : $t('modals.confirm.confirm'));
+  $: resolvedCancelText = cancelText || $t('common.cancel');
+  $: resolvedCheckboxLabel = checkboxLabel || $t('modals.bulk_delete.delete_files_checkbox');
 
   function handleKeydown(e) {
     if (e.key === 'Escape' && isOpen) {
@@ -39,8 +46,8 @@
           <AlertTriangle size={20} strokeWidth={2.2} />
         </div>
         <div class="flex-1 min-w-0">
-          <h3 class="font-bold text-[var(--color-text)] text-base">{title}</h3>
-          <p class="text-xs text-[var(--color-secondary)] mt-1 break-words">{message}</p>
+          <h3 class="font-bold text-[var(--color-text)] text-base">{resolvedTitle}</h3>
+          <p class="text-xs text-[var(--color-secondary)] mt-1 break-words">{resolvedMessage}</p>
           {#if submessage}
             <div class="text-[11px] font-mono text-[var(--color-secondary)]/90 mt-2 truncate bg-[var(--color-bg)] px-2.5 py-1.5 rounded-xl border border-[var(--color-border)]">
               {submessage}
@@ -50,7 +57,7 @@
         <button
           on:click={onCancel}
           class="text-[var(--color-secondary)] hover:text-[var(--color-text)] p-1 rounded-lg hover:bg-[var(--color-border)]/50 transition shrink-0"
-          aria-label="Close"
+          aria-label={$t('common.close')}
         >
           <X size={16} />
         </button>
@@ -63,7 +70,7 @@
             bind:checked={checkboxChecked}
             class="rounded border-[var(--color-border)] text-rose-500 focus:ring-rose-500 w-4 h-4 accent-rose-500"
           />
-          <span class="font-medium">{checkboxLabel}</span>
+          <span class="font-medium">{resolvedCheckboxLabel}</span>
         </label>
       {/if}
 
@@ -73,14 +80,14 @@
           on:click={onCancel}
           class="px-4 py-2 text-xs font-semibold rounded-xl border border-[var(--color-border)] hover:bg-[var(--color-bg)] text-[var(--color-secondary)] hover:text-[var(--color-text)] transition"
         >
-          {cancelText}
+          {resolvedCancelText}
         </button>
         <button
           type="button"
           on:click={() => onConfirm({ checked: checkboxChecked })}
           class="px-4 py-2 text-xs font-semibold rounded-xl transition shadow-xs flex items-center gap-1.5 {danger ? 'bg-rose-500 hover:bg-rose-600 text-white' : 'bg-[var(--color-accent)] hover:opacity-90 text-white'}"
         >
-          {confirmText}
+          {resolvedConfirmText}
         </button>
       </div>
     </div>

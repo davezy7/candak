@@ -1,5 +1,6 @@
 <script>
   import ConfirmModal from './ConfirmModal.svelte';
+  import { t } from './i18n/index.js';
 
   export let isOpen = false;
   export let count = 0;
@@ -19,13 +20,13 @@
 
 <ConfirmModal
   {isOpen}
-  title="Delete Selected Downloads"
-  message="Delete {count} selected {count === 1 ? 'download' : 'downloads'}?"
-  confirmText="Delete {count} {count === 1 ? 'Item' : 'Items'}"
-  cancelText="Cancel"
+  title={$t('modals.bulk_delete.title')}
+  message={$t('modals.bulk_delete.message', { count })}
+  confirmText={$t('modals.bulk_delete.confirm', { count })}
+  cancelText={$t('common.cancel')}
   danger={true}
   showCheckbox={true}
-  checkboxLabel="Also delete downloaded files from disk"
+  checkboxLabel={$t('modals.bulk_delete.delete_files_checkbox')}
   bind:checkboxChecked={deleteFiles}
   onConfirm={handleConfirm}
   {onCancel}

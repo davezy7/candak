@@ -14,6 +14,12 @@
   --color-card-icon-muted: #F4F4F5;
   --color-input: #F4F4F5;
   --color-nav-bg: #FFFFFF;
+  --color-status-downloading: #0D9488;
+  --color-status-completed: #059669;
+  --color-status-paused: #D97706;
+  --color-status-queued: #0284C7;
+  --color-status-error: #E11D48;
+  --color-status-cancelled: #71717A;
   --scrollbar-thumb: rgba(113, 113, 122, 0.2);
   --scrollbar-thumb-hover: rgba(113, 113, 122, 0.35);
   color-scheme: light;
@@ -33,6 +39,12 @@
   --color-card-icon-muted: #18181B;
   --color-input: #121215;
   --color-nav-bg: #121215;
+  --color-status-downloading: #2DD4BF;
+  --color-status-completed: #10B981;
+  --color-status-paused: #F59E0B;
+  --color-status-queued: #38BDF8;
+  --color-status-error: #F43F5E;
+  --color-status-cancelled: #A1A1AA;
   --scrollbar-thumb: rgba(161, 161, 170, 0.2);
   --scrollbar-thumb-hover: rgba(161, 161, 170, 0.35);
   color-scheme: dark;
@@ -53,6 +65,12 @@
     --color-card-icon-muted: #18181B;
     --color-input: #121215;
     --color-nav-bg: #121215;
+    --color-status-downloading: #2DD4BF;
+    --color-status-completed: #10B981;
+    --color-status-paused: #F59E0B;
+    --color-status-queued: #38BDF8;
+    --color-status-error: #F43F5E;
+    --color-status-cancelled: #A1A1AA;
     --scrollbar-thumb: rgba(161, 161, 170, 0.2);
     --scrollbar-thumb-hover: rgba(161, 161, 170, 0.35);
     color-scheme: dark;

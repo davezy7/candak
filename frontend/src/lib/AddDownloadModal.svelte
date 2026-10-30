@@ -16,6 +16,8 @@
   } from '@wails/go/main/App.js';
   import { WindowSetSize } from '@wails/runtime/runtime.js';
   import { formatBytes, getFileExtension, DEFAULT_ACCEPTED_EXTENSIONS } from './formatters.js';
+  import { STORAGE_KEYS } from './constants.js';
+  import { t } from './i18n/index.js';
   import { 
     X, 
     Folder, 
@@ -209,7 +211,7 @@
   }
 
   $: if (isOpen) {
-    const savedConn = localStorage.getItem('candak_default_connections');
+    const savedConn = localStorage.getItem(STORAGE_KEYS.DEFAULT_CONNECTIONS);
     if (savedConn && (!probeResult || probeResult.resumable)) {
       connections = parseInt(savedConn, 10) || 4;
     }
@@ -233,10 +235,10 @@
     extensionNotice = '';
     rejectedExtension = '';
 
-    const enforce = localStorage.getItem('candak_enforce_extensions') === 'true';
+    const enforce = localStorage.getItem(STORAGE_KEYS.ENFORCE_EXTENSIONS) === 'true';
     if (!enforce) return true;
 
-    const raw = localStorage.getItem('candak_accepted_extensions');
+    const raw = localStorage.getItem(STORAGE_KEYS.ACCEPTED_EXTENSIONS);
     let accepted = DEFAULT_ACCEPTED_EXTENSIONS;
     if (raw) {
       try { 
@@ -256,7 +258,7 @@
 
   function handleAllowExtension() {
     if (!rejectedExtension) return;
-    const raw = localStorage.getItem('candak_accepted_extensions');
+    const raw = localStorage.getItem(STORAGE_KEYS.ACCEPTED_EXTENSIONS);
     let accepted = [...DEFAULT_ACCEPTED_EXTENSIONS];
     if (raw) {
       try { 
@@ -266,7 +268,7 @@
     }
     if (!accepted.includes(rejectedExtension)) {
       accepted.push(rejectedExtension);
-      localStorage.setItem('candak_accepted_extensions', JSON.stringify(accepted));
+      localStorage.setItem(STORAGE_KEYS.ACCEPTED_EXTENSIONS, JSON.stringify(accepted));
     }
     extensionNotice = '';
     rejectedExtension = '';
@@ -274,14 +276,14 @@
 
   onMount(async () => {
     try {
-      const savedDir = localStorage.getItem('candak_custom_download_dir');
+      const savedDir = localStorage.getItem(STORAGE_KEYS.CUSTOM_DOWNLOAD_DIR);
       if (savedDir) {
         saveDir = savedDir;
       } else {
         saveDir = await GetDefaultDownloadDir();
       }
 
-      const savedConn = localStorage.getItem('candak_default_connections');
+      const savedConn = localStorage.getItem(STORAGE_KEYS.DEFAULT_CONNECTIONS);
       if (savedConn) {
         connections = parseInt(savedConn, 10) || 4;
       }
@@ -337,9 +339,9 @@
   }
 
   function isExtensionAccepted(targetName) {
-    const enforce = localStorage.getItem('candak_enforce_extensions') === 'true';
+    const enforce = localStorage.getItem(STORAGE_KEYS.ENFORCE_EXTENSIONS) === 'true';
     if (!enforce) return true;
-    const raw = localStorage.getItem('candak_accepted_extensions');
+    const raw = localStorage.getItem(STORAGE_KEYS.ACCEPTED_EXTENSIONS);
     let accepted = DEFAULT_ACCEPTED_EXTENSIONS;
     if (raw) {
       try {
@@ -634,7 +636,7 @@
     if (selected.length === 0) return;
     if (isBatchProbing) return; // Wait for size calculation to finish first
 
-    const enforce = localStorage.getItem('candak_enforce_extensions') === 'true';
+    const enforce = localStorage.getItem(STORAGE_KEYS.ENFORCE_EXTENSIONS) === 'true';
     if (enforce) {
       const blocked = selected.filter(it => !isExtensionAccepted(it.filename));
       if (blocked.length > 0) {
@@ -767,7 +769,7 @@
           <button 
             on:click={handleClose}
             class="text-[var(--color-secondary)] hover:text-[var(--color-text)] p-1.5 rounded-xl hover:bg-[var(--color-border)]/50 transition cursor-pointer"
-            aria-label="Close dialog"
+            aria-label={$t('common.close')}
           >
             <X size={18} />
           </button>
@@ -785,7 +787,7 @@
               class="flex-1 py-1.5 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer {activeMode === 'single' ? 'bg-[var(--color-surface)] text-[var(--color-accent)] shadow-xs' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'}"
             >
               <Download size={13} strokeWidth={2.2} />
-              Single File
+              {$t('modals.add.tab_direct')}
             </button>
             <button
               type="button"
@@ -793,7 +795,7 @@
               class="flex-1 py-1.5 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer {activeMode === 'batch' ? 'bg-[var(--color-surface)] text-[var(--color-accent)] shadow-xs' : 'text-[var(--color-secondary)] hover:text-[var(--color-text)]'}"
             >
               <Link size={13} strokeWidth={2.2} />
-              Batch URLs
+              {$t('modals.add.tab_batch')}
               {#if batchItems.length > 0}
                 <span class="px-1.5 py-0.2 text-[10px] rounded-full bg-[var(--color-accent)]/15 text-[var(--color-accent)] font-mono">
                   {batchItems.length}
@@ -1181,7 +1183,7 @@
 
                 <!-- Save Directory -->
                 <div>
-                  <label for="download-dir" class="block text-xs font-semibold text-[var(--color-text)] mb-1">Save Path</label>
+                  <label for="download-dir" class="block text-xs font-semibold text-[var(--color-text)] mb-1">{$t('modals.add.save_path_label')}</label>
                   <div class="flex gap-2">
                     <input 
                       id="download-dir"
@@ -1196,7 +1198,7 @@
                       class="px-3 py-2 bg-[var(--color-surface)] hover:bg-[var(--color-bg)] text-[var(--color-text)] text-xs font-medium rounded-xl border border-[var(--color-border)] shadow-2xs transition flex items-center gap-1.5 shrink-0 cursor-pointer"
                     >
                       <Folder size={14} class="text-[var(--color-secondary)]" />
-                      Browse
+                      {$t('modals.add.browse')}
                     </button>
                   </div>
                 </div>
@@ -1206,9 +1208,9 @@
                   <div class="flex items-center justify-between mb-1">
                     <label for="download-connections" class="text-xs font-semibold text-[var(--color-text)] flex items-center gap-1">
                       <Zap size={13} class="text-[var(--color-accent)]" />
-                      Parallel Connections
+                      {$t('modals.add.threads_label')}
                     </label>
-                    <span class="text-xs font-bold text-[var(--color-accent)]">{connections} threads</span>
+                    <span class="text-xs font-bold text-[var(--color-accent)]">{$t('modals.settings.chunks_count', { count: connections })}</span>
                   </div>
                   <input 
                     id="download-connections"
@@ -1249,7 +1251,7 @@
               on:click={handleClose}
               class="px-4 py-2 text-xs font-semibold text-[var(--color-secondary)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)] rounded-xl transition cursor-pointer"
             >
-              Cancel
+              {$t('common.cancel')}
             </button>
             <button 
               type={isYouTube ? "button" : "submit"} 
@@ -1259,16 +1261,16 @@
             >
               {#if isSubmitting}
                 <Loader2 size={14} class="animate-spin" />
-                Starting...
+                {$t('modals.update.starting')}
               {:else if isYouTube}
                 <Download size={14} strokeWidth={2.5} />
-                Download {selectedYTFormat?.resolution || 'Video'}
+                {$t('modals.history.download')} {selectedYTFormat?.resolution || 'Video'}
               {:else if (isBatchMode ? isBatchProbing : isProbing)}
                 <Loader2 size={14} class="animate-spin" />
                 Calculating...
               {:else}
                 <Download size={14} strokeWidth={2.5} />
-                {isBatchMode ? `Download (${selectedCount})` : 'Download'}
+                {isBatchMode ? `${$t('modals.history.download')} (${selectedCount})` : $t('modals.history.download')}
               {/if}
             </button>
           </div>

@@ -1,4 +1,4 @@
-export function formatBytes(bytes, decimals = 1) {
+export function formatBytes(bytes, decimals = 1, locale) {
   if (bytes === null || bytes === undefined || isNaN(bytes)) return '0 B';
   if (bytes === 0) return '0 B';
   if (bytes < 0) return 'Unknown';
@@ -10,13 +10,19 @@ export function formatBytes(bytes, decimals = 1) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   if (i < 0) return bytes + ' B';
   const sizeIdx = Math.min(i, sizes.length - 1);
+  const val = bytes / Math.pow(k, sizeIdx);
 
-  return parseFloat((bytes / Math.pow(k, sizeIdx)).toFixed(dm)) + ' ' + sizes[sizeIdx];
+  const formatted = new Intl.NumberFormat(locale || 'en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: dm
+  }).format(val);
+
+  return formatted + ' ' + sizes[sizeIdx];
 }
 
-export function formatSpeed(bytesPerSec) {
+export function formatSpeed(bytesPerSec, locale) {
   if (!bytesPerSec || bytesPerSec <= 0) return '0 B/s';
-  return formatBytes(bytesPerSec, 1) + '/s';
+  return formatBytes(bytesPerSec, 1, locale) + '/s';
 }
 
 export function formatETA(seconds) {
@@ -34,33 +40,34 @@ export function formatETA(seconds) {
   return `${pad(hours)}:${pad(remMins)}:${pad(secs)} remaining`;
 }
 
-export function formatDate(dateString) {
+export function formatDate(dateString, locale) {
   if (!dateString) return '';
   try {
     const d = new Date(dateString);
-    return d.toLocaleDateString(undefined, {
+    return new Intl.DateTimeFormat(locale || undefined, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
-    });
+    }).format(d);
   } catch (e) {
     return dateString;
   }
 }
 
-export function getFileCategory(filename) {
-  if (!filename) return 'other';
-  const ext = filename.split('.').pop()?.toLowerCase();
+export function getFileCategory(filename, savePath) {
+  const target = filename || savePath || '';
+  const ext = getFileExtension(target);
+  if (!ext) return 'other';
   
   const categories = {
     archive: ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'iso', 'dmg', 'pkg'],
-    audio: ['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a'],
-    video: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'wmv'],
-    image: ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'avif', 'bmp'],
-    document: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md'],
-    code: ['go', 'js', 'ts', 'py', 'html', 'css', 'json', 'yaml', 'yml', 'rs', 'c', 'cpp', 'sh'],
-    executable: ['exe', 'app', 'msi', 'bin', 'apk']
+    audio: ['mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'opus'],
+    video: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'wmv', 'm4v', 'flv'],
+    image: ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'avif', 'bmp', 'ico', 'tiff'],
+    document: ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'epub', 'rtf'],
+    code: ['go', 'js', 'ts', 'py', 'html', 'css', 'json', 'yaml', 'yml', 'rs', 'c', 'cpp', 'sh', 'sql'],
+    executable: ['exe', 'app', 'msi', 'bin', 'apk', 'deb', 'rpm']
   };
 
   for (const [category, exts] of Object.entries(categories)) {
