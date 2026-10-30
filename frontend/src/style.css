@@ -1,57 +1,60 @@
 @import "tailwindcss";
 
 :root {
-  --color-bg: #F5FAFA;
+  --color-bg: #FAFAFA;
   --color-surface: #FFFFFF;
+  --color-surface-hover: #F4F4F5;
   --color-accent: #0D9488;
   --color-accent-hover: #0F766E;
   --color-accent-subtle: #CCFBF1;
   --color-accent-subtle-text: #0D9488;
-  --color-text: #1F2937;
-  --color-secondary: #64748B;
-  --color-border: #E2E8F0;
-  --color-card-icon-muted: #F1F5F9;
-  --color-input: #F5FAFA;
+  --color-text: #18181B;
+  --color-secondary: #71717A;
+  --color-border: #E4E4E7;
+  --color-card-icon-muted: #F4F4F5;
+  --color-input: #F4F4F5;
   --color-nav-bg: #FFFFFF;
-  --scrollbar-thumb: rgba(100, 116, 139, 0.2);
-  --scrollbar-thumb-hover: rgba(100, 116, 139, 0.35);
+  --scrollbar-thumb: rgba(113, 113, 122, 0.2);
+  --scrollbar-thumb-hover: rgba(113, 113, 122, 0.35);
   color-scheme: light;
 }
 
 [data-theme="dark"], .dark {
-  --color-bg: #101918;
-  --color-surface: #192523;
+  --color-bg: #09090B;
+  --color-surface: #121215;
+  --color-surface-hover: #18181B;
   --color-accent: #2DD4BF;
   --color-accent-hover: #14B8A6;
-  --color-accent-subtle: rgba(45, 212, 191, 0.15);
+  --color-accent-subtle: rgba(45, 212, 191, 0.12);
   --color-accent-subtle-text: #2DD4BF;
-  --color-text: #E6F2F0;
-  --color-secondary: #9BAEAA;
-  --color-border: #30413D;
-  --color-card-icon-muted: #131E1C;
-  --color-input: #101918;
-  --color-nav-bg: #192523;
-  --scrollbar-thumb: rgba(155, 174, 170, 0.2);
-  --scrollbar-thumb-hover: rgba(155, 174, 170, 0.35);
+  --color-text: #F4F4F5;
+  --color-secondary: #A1A1AA;
+  --color-border: #27272A;
+  --color-card-icon-muted: #18181B;
+  --color-input: #121215;
+  --color-nav-bg: #121215;
+  --scrollbar-thumb: rgba(161, 161, 170, 0.2);
+  --scrollbar-thumb-hover: rgba(161, 161, 170, 0.35);
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-bg: #101918;
-    --color-surface: #192523;
+    --color-bg: #09090B;
+    --color-surface: #121215;
+    --color-surface-hover: #18181B;
     --color-accent: #2DD4BF;
     --color-accent-hover: #14B8A6;
-    --color-accent-subtle: rgba(45, 212, 191, 0.15);
+    --color-accent-subtle: rgba(45, 212, 191, 0.12);
     --color-accent-subtle-text: #2DD4BF;
-    --color-text: #E6F2F0;
-    --color-secondary: #9BAEAA;
-    --color-border: #30413D;
-    --color-card-icon-muted: #131E1C;
-    --color-input: #101918;
-    --color-nav-bg: #192523;
-    --scrollbar-thumb: rgba(155, 174, 170, 0.2);
-    --scrollbar-thumb-hover: rgba(155, 174, 170, 0.35);
+    --color-text: #F4F4F5;
+    --color-secondary: #A1A1AA;
+    --color-border: #27272A;
+    --color-card-icon-muted: #18181B;
+    --color-input: #121215;
+    --color-nav-bg: #121215;
+    --scrollbar-thumb: rgba(161, 161, 170, 0.2);
+    --scrollbar-thumb-hover: rgba(161, 161, 170, 0.35);
     color-scheme: dark;
   }
 }
