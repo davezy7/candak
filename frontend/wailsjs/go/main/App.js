@@ -78,6 +78,10 @@ export function GetLoopbackStatus() {
   return window['go']['main']['App']['GetLoopbackStatus']();
 }
 
+export function GetMaxConcurrentDownloads() {
+  return window['go']['main']['App']['GetMaxConcurrentDownloads']();
+}
+
 export function GetStartupSettings() {
   return window['go']['main']['App']['GetStartupSettings']();
 }
@@ -140,6 +144,10 @@ export function SelectDirectory() {
 
 export function SetClipboardWatching(arg1) {
   return window['go']['main']['App']['SetClipboardWatching'](arg1);
+}
+
+export function SetMaxConcurrentDownloads(arg1) {
+  return window['go']['main']['App']['SetMaxConcurrentDownloads'](arg1);
 }
 
 export function SetMinimized(arg1) {

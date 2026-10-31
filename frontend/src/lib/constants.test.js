@@ -30,3 +30,8 @@ test('DOWNLOAD_STATUS matches backend lifecycle models', () => {
   assert.equal(DOWNLOAD_STATUS.ERROR, 'error');
   assert.equal(DOWNLOAD_STATUS.CANCELLED, 'cancelled');
 });
+
+test('STORAGE_KEYS contains expected lifecycle and settings keys', () => {
+  assert.equal(STORAGE_KEYS.MAX_CONCURRENT_DOWNLOADS, 'candak_max_concurrent_downloads');
+  assert.equal(STORAGE_KEYS.DEFAULT_CONNECTIONS, 'candak_default_connections');
+});

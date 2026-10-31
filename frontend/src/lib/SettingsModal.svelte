@@ -11,7 +11,9 @@
     IsClipboardWatching,
     GetStartupSettings,
     SetStartupSettings,
-    GetAppVersion
+    GetAppVersion,
+    SetMaxConcurrentDownloads,
+    GetMaxConcurrentDownloads
   } from '@wails/go/main/App.js';
   import { 
     X, 
@@ -33,7 +35,8 @@
     Power,
     RefreshCw,
     Rocket,
-    Languages
+    Languages,
+    Layers
   } from 'lucide-svelte';
   import { DEFAULT_ACCEPTED_EXTENSIONS, formatDate } from './formatters.js';
   import { STORAGE_KEYS } from './constants.js';
@@ -49,6 +52,7 @@
   let currentTheme = 'system';
   let downloadDir = '';
   let defaultConnections = 4;
+  let maxConcurrentDownloads = 3;
   let statusMessage = '';
 
   // Accepted Extensions State
@@ -87,6 +91,14 @@
       }
       const savedConn = localStorage.getItem(STORAGE_KEYS.DEFAULT_CONNECTIONS);
       if (savedConn) defaultConnections = parseInt(savedConn, 10);
+
+      const savedMaxConcurrent = localStorage.getItem(STORAGE_KEYS.MAX_CONCURRENT_DOWNLOADS);
+      if (savedMaxConcurrent) {
+        const parsedMax = parseInt(savedMaxConcurrent, 10);
+        if (!isNaN(parsedMax) && parsedMax >= 1 && parsedMax <= 10) {
+          maxConcurrentDownloads = parsedMax;
+        }
+      }
 
       const savedExts = localStorage.getItem(STORAGE_KEYS.ACCEPTED_EXTENSIONS);
       if (savedExts) {
@@ -169,6 +181,20 @@
   function setConnections(val) {
     defaultConnections = val;
     localStorage.setItem(STORAGE_KEYS.DEFAULT_CONNECTIONS, String(defaultConnections));
+  }
+
+  function handleMaxConcurrentChange(e) {
+    if (e && e.target) {
+      maxConcurrentDownloads = parseInt(e.target.value, 10);
+    }
+    localStorage.setItem(STORAGE_KEYS.MAX_CONCURRENT_DOWNLOADS, String(maxConcurrentDownloads));
+    SetMaxConcurrentDownloads(maxConcurrentDownloads);
+  }
+
+  function setMaxConcurrent(val) {
+    maxConcurrentDownloads = val;
+    localStorage.setItem(STORAGE_KEYS.MAX_CONCURRENT_DOWNLOADS, String(maxConcurrentDownloads));
+    SetMaxConcurrentDownloads(maxConcurrentDownloads);
   }
 
   function saveExtensions() {
@@ -521,15 +547,47 @@
             </div>
           </div>
 
+          <!-- Simultaneous Downloads (Queue Limit) Slider -->
+          <div class="pt-3 border-t border-[var(--color-border)]">
+            <div class="flex items-center justify-between text-xs font-semibold text-[var(--color-text)] mb-0.5">
+              <span class="flex items-center gap-1.5">
+                <Layers size={14} class="text-[var(--color-accent)]" />
+                {$t('modals.settings.simultaneous_downloads')}
+              </span>
+              <span class="text-[var(--color-accent)] font-bold">{$t('modals.settings.simultaneous_count', { count: maxConcurrentDownloads })}</span>
+            </div>
+            <p class="text-[11px] text-[var(--color-secondary)] mb-1.5 leading-snug">
+              {$t('modals.settings.simultaneous_downloads_desc')}
+            </p>
+            <input 
+              type="range" 
+              min="1" 
+              max="10" 
+              step="1" 
+              bind:value={maxConcurrentDownloads} 
+              on:input={handleMaxConcurrentChange}
+              class="w-full accent-[var(--color-accent)] bg-[var(--color-border)] h-2 rounded-lg cursor-pointer mt-1"
+            />
+            <div class="relative text-[10px] text-[var(--color-secondary)] mt-1.5 h-3.5 select-none">
+              <button type="button" on:click={() => setMaxConcurrent(1)} class="absolute left-0 hover:text-[var(--color-text)] transition cursor-pointer">{$t('modals.settings.simultaneous_single')}</button>
+              <button type="button" on:click={() => setMaxConcurrent(3)} class="absolute left-[calc(8px+0.222*(100%-16px))] -translate-x-1/2 hover:text-[var(--color-text)] transition cursor-pointer">{$t('modals.settings.simultaneous_balanced')}</button>
+              <button type="button" on:click={() => setMaxConcurrent(5)} class="absolute left-[calc(8px+0.444*(100%-16px))] -translate-x-1/2 hover:text-[var(--color-text)] transition cursor-pointer">{$t('modals.settings.simultaneous_turbo')}</button>
+              <button type="button" on:click={() => setMaxConcurrent(10)} class="absolute right-0 hover:text-[var(--color-text)] transition cursor-pointer">{$t('modals.settings.simultaneous_max')}</button>
+            </div>
+          </div>
+
           <!-- Default Thread / Connection Slider -->
           <div class="pt-3 border-t border-[var(--color-border)]">
-            <div class="flex items-center justify-between text-xs font-semibold text-[var(--color-text)] mb-1">
+            <div class="flex items-center justify-between text-xs font-semibold text-[var(--color-text)] mb-0.5">
               <span class="flex items-center gap-1.5">
                 <Zap size={14} class="text-[var(--color-accent)]" />
                 {$t('modals.settings.default_threads')}
               </span>
               <span class="text-[var(--color-accent)] font-bold">{$t('modals.settings.chunks_count', { count: defaultConnections })}</span>
             </div>
+            <p class="text-[11px] text-[var(--color-secondary)] mb-1.5 leading-snug">
+              {$t('modals.settings.threads_per_download_desc')}
+            </p>
             <input 
               type="range" 
               min="1" 

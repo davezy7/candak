@@ -81,6 +81,7 @@
     "drop_zone": {
       "title": "Klik di sini atau Seret-dan-Lepas URL untuk diunduh"
     },
+    "queued_waiting": "Menunggu giliran antrean",
     "footer": {
       "limit_on": "BATAS AKTIF",
       "limit_off": "BATAS MATI",
@@ -177,7 +178,16 @@
       "change": "Ubah",
       "open_folder": "Buka folder",
       "open_folder_title": "Buka folder di Finder / Explorer",
+      "network_section": "Jaringan & Konkurensi",
+      "simultaneous_downloads": "Unduhan Bersamaan",
+      "simultaneous_count": "{count} berkas",
+      "simultaneous_downloads_desc": "Jumlah maksimum berkas yang diunduh bersamaan. Berkas tambahan akan menunggu dalam antrean.",
+      "simultaneous_single": "Berurutan (1)",
+      "simultaneous_balanced": "Seimbang (3)",
+      "simultaneous_turbo": "Turbo (5)",
+      "simultaneous_max": "10 (Maksimal)",
       "default_threads": "Utas Unduhan Standar",
+      "threads_per_download_desc": "Jumlah koneksi byte-range paralel per masing-masing berkas.",
       "chunks_count": "{count} bagian",
       "thread_single": "1 (Tunggal)",
       "thread_standard": "4 (Standar)",

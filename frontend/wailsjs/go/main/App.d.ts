@@ -42,6 +42,8 @@ export function GetExtensionDir():Promise<string>;
 
 export function GetLoopbackStatus():Promise<Record<string, any>>;
 
+export function GetMaxConcurrentDownloads():Promise<number>;
+
 export function GetStartupSettings():Promise<models.StartupConfig>;
 
 export function GetURLHistory():Promise<Array<models.URLHistoryItem>>;
@@ -73,6 +75,8 @@ export function ResumeDownload(arg1:string):Promise<void>;
 export function SelectDirectory():Promise<string>;
 
 export function SetClipboardWatching(arg1:boolean):Promise<boolean>;
+
+export function SetMaxConcurrentDownloads(arg1:number):Promise<void>;
 
 export function SetMinimized(arg1:boolean):Promise<void>;
 

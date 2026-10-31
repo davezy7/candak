@@ -12,7 +12,8 @@
     ResumeDownload,
     CancelDownload,
     OpenFile,
-    ShowInFolder
+    ShowInFolder,
+    SetMaxConcurrentDownloads
   } from '@wails/go/main/App.js';
   import { EventsOn } from '@wails/runtime/runtime.js';
   import { FILTER_MODE, IPC_EVENTS, STORAGE_KEYS } from './lib/constants.js';
@@ -57,6 +58,15 @@
 
     // Background update check, throttled to once per 24 hours via localStorage
     checkForUpdates(false);
+
+    // Initialize saved concurrency limit in engine before initial fetch
+    const savedConcurrency = localStorage.getItem(STORAGE_KEYS.MAX_CONCURRENT_DOWNLOADS);
+    if (savedConcurrency) {
+      const limit = parseInt(savedConcurrency, 10);
+      if (!isNaN(limit) && limit >= 1 && limit <= 10) {
+        SetMaxConcurrentDownloads(limit);
+      }
+    }
 
     await fetchDownloads();
 

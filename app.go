@@ -257,6 +257,21 @@ func (a *App) CancelDownload(id string, deleteFile bool) error {
 	return a.manager.CancelDownload(a.ctx, id, deleteFile)
 }
 
+// SetMaxConcurrentDownloads dynamically adjusts the concurrency limit.
+func (a *App) SetMaxConcurrentDownloads(limit int) {
+	if a.manager != nil {
+		a.manager.SetMaxConcurrentDownloads(limit)
+	}
+}
+
+// GetMaxConcurrentDownloads returns the current concurrency limit.
+func (a *App) GetMaxConcurrentDownloads() int {
+	if a.manager != nil {
+		return a.manager.GetMaxConcurrentDownloads()
+	}
+	return 3
+}
+
 // BatchPauseDownloads suspends multiple download tasks.
 func (a *App) BatchPauseDownloads(ids []string) error {
 	var lastErr error

@@ -490,3 +490,143 @@ func TestBatchProbeURLsAndAddBatchDownloads(t *testing.T) {
 		t.Errorf("Non-resumable downloads should use 1 chunk connection, got %d and %d", dl1.TotalChunks, dl2.TotalChunks)
 	}
 }
+
+func TestDynamicConcurrencyAndQueueControl(t *testing.T) {
+	ctx := context.Background()
+	payload := []byte("TEST_PAYLOAD_CONCURRENCY_CONTROL")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Accept-Ranges", "bytes")
+		w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+		time.Sleep(200 * time.Millisecond) // slow enough to stay active
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+
+	tempDir, err := os.MkdirTemp("", "candak-concurrency-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	repo, err := sqlite.New(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to init sqlite repo: %v", err)
+	}
+	defer repo.Close()
+
+	mgr := NewManager(Config{
+		Repository:             repo,
+		MaxConcurrentDownloads: 1,
+	})
+	defer mgr.Close()
+
+	// 1. Clamping verification
+	mgr.SetMaxConcurrentDownloads(0)
+	if mgr.GetMaxConcurrentDownloads() != 1 {
+		t.Errorf("Expected limit clamped to 1, got %d", mgr.GetMaxConcurrentDownloads())
+	}
+	mgr.SetMaxConcurrentDownloads(15)
+	if mgr.GetMaxConcurrentDownloads() != 10 {
+		t.Errorf("Expected limit clamped to 10, got %d", mgr.GetMaxConcurrentDownloads())
+	}
+	mgr.SetMaxConcurrentDownloads(1)
+
+	// 2. Queue-aware manual resume under full queue
+	// Simulate an active task occupying slot 1
+	mgr.mu.Lock()
+	mgr.activeTasks["active-slot-1"] = &activeTask{
+		download: &models.Download{ID: "active-slot-1", Status: models.StatusDownloading},
+	}
+	mgr.mu.Unlock()
+
+	// Create paused download in repo
+	pausedDL := &models.Download{
+		ID:             "paused-dl-1",
+		URL:            server.URL + "/file.bin",
+		Filename:       "file.bin",
+		SavePath:       filepath.Join(tempDir, "file.bin"),
+		TotalSize:      int64(len(payload)),
+		DownloadedSize: 0,
+		Status:         models.StatusPaused,
+		Resumable:      false,
+		TotalChunks:    1,
+	}
+	if err := repo.InsertDownload(ctx, pausedDL); err != nil {
+		t.Fatalf("InsertDownload failed: %v", err)
+	}
+	chunk := &models.Chunk{
+		ID:            "chunk_paused_0",
+		DownloadID:    "paused-dl-1",
+		ChunkIndex:    0,
+		StartOffset:   0,
+		EndOffset:     int64(len(payload) - 1),
+		CurrentOffset: 0,
+		Status:        models.ChunkStatusPending,
+	}
+	if err := repo.SaveChunks(ctx, []*models.Chunk{chunk}); err != nil {
+		t.Fatalf("SaveChunks failed: %v", err)
+	}
+
+	// Resuming while slot is full should transition task into StatusQueued
+	if err := mgr.ResumeDownload(ctx, "paused-dl-1"); err != nil {
+		t.Fatalf("ResumeDownload failed: %v", err)
+	}
+
+	updatedDL, err := repo.GetDownload(ctx, "paused-dl-1")
+	if err != nil {
+		t.Fatalf("GetDownload failed: %v", err)
+	}
+	if updatedDL.Status != models.StatusQueued {
+		t.Errorf("Expected resumed task to enter StatusQueued, got %s", updatedDL.Status)
+	}
+
+	// 3. Dynamic expansion: increasing concurrency limit dispatches queued task
+	// Free active mock task
+	mgr.mu.Lock()
+	delete(mgr.activeTasks, "active-slot-1")
+	mgr.mu.Unlock()
+
+	mgr.SetMaxConcurrentDownloads(2)
+	// Give dispatch routine a brief window
+	time.Sleep(50 * time.Millisecond)
+
+	mgr.mu.Lock()
+	activeLen := len(mgr.activeTasks)
+	mgr.mu.Unlock()
+	if activeLen != 1 {
+		t.Errorf("Expected queued task to be dispatched on limit increase, active tasks: %d", activeLen)
+	}
+
+	// 4. Batch resume race prevention: rapid calls respect concurrency ceiling
+	mgr.SetMaxConcurrentDownloads(1)
+	paused2 := &models.Download{
+		ID:       "paused-dl-2",
+		URL:      server.URL + "/file2.bin",
+		Filename: "file2.bin",
+		SavePath: filepath.Join(tempDir, "file2.bin"),
+		Status:   models.StatusPaused,
+	}
+	paused3 := &models.Download{
+		ID:       "paused-dl-3",
+		URL:      server.URL + "/file3.bin",
+		Filename: "file3.bin",
+		SavePath: filepath.Join(tempDir, "file3.bin"),
+		Status:   models.StatusPaused,
+	}
+	_ = repo.InsertDownload(ctx, paused2)
+	_ = repo.InsertDownload(ctx, paused3)
+	_ = repo.SaveChunks(ctx, []*models.Chunk{{ID: "c2", DownloadID: "paused-dl-2", CurrentOffset: 0, EndOffset: 10}})
+	_ = repo.SaveChunks(ctx, []*models.Chunk{{ID: "c3", DownloadID: "paused-dl-3", CurrentOffset: 0, EndOffset: 10}})
+
+	// Currently 1 task is running (paused-dl-1). Rapidly resume both paused2 and paused3
+	_ = mgr.ResumeDownload(ctx, "paused-dl-2")
+	_ = mgr.ResumeDownload(ctx, "paused-dl-3")
+
+	d2, _ := repo.GetDownload(ctx, "paused-dl-2")
+	d3, _ := repo.GetDownload(ctx, "paused-dl-3")
+	if d2.Status != models.StatusQueued || d3.Status != models.StatusQueued {
+		t.Errorf("Expected both batch-resumed items to be queued, got d2=%s, d3=%s", d2.Status, d3.Status)
+	}
+}

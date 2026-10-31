@@ -48,6 +48,7 @@ export const STORAGE_KEYS = Object.freeze({
   LOCALE: 'candak_locale',
   CUSTOM_DOWNLOAD_DIR: 'candak_custom_download_dir',
   DEFAULT_CONNECTIONS: 'candak_default_connections',
+  MAX_CONCURRENT_DOWNLOADS: 'candak_max_concurrent_downloads',
   ACCEPTED_EXTENSIONS: 'candak_accepted_extensions',
   ENFORCE_EXTENSIONS: 'candak_enforce_extensions'
 });

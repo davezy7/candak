@@ -89,6 +89,8 @@
   // Aggregate metrics
   $: totalDownloadSpeed = downloads.reduce((acc, d) => acc + (d.status === DOWNLOAD_STATUS.DOWNLOADING ? (d.speed || 0) : 0), 0);
   $: activeCount = downloads.filter(d => d.status === DOWNLOAD_STATUS.DOWNLOADING).length;
+  $: queuedCount = downloads.filter(d => d.status === DOWNLOAD_STATUS.QUEUED).length;
+  $: inProgressCount = activeCount + queuedCount;
   $: completedCount = downloads.filter(d => d.status === DOWNLOAD_STATUS.COMPLETED).length;
   $: pausedCount = downloads.filter(d => d.status === DOWNLOAD_STATUS.PAUSED).length;
   $: latestActive = downloads.find(d => d.status === DOWNLOAD_STATUS.DOWNLOADING) || downloads[0];
@@ -129,7 +131,7 @@
     closeContextMenu();
     if (dl.status === DOWNLOAD_STATUS.COMPLETED) {
       onOpenFile(dl.id);
-    } else if (dl.status === DOWNLOAD_STATUS.DOWNLOADING) {
+    } else if (dl.status === DOWNLOAD_STATUS.DOWNLOADING || dl.status === DOWNLOAD_STATUS.QUEUED) {
       onPause(dl.id);
     } else if (dl.status === DOWNLOAD_STATUS.PAUSED) {
       onResume(dl.id);
@@ -381,7 +383,7 @@
             <div class="absolute left-0 mt-1 w-44 py-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-lg z-30 text-xs">
               {#each [
                 { id: FILTER_MODE.ALL, label: $t('table.navigation.all_files_count', { count: downloads.length }) },
-                { id: FILTER_MODE.DOWNLOADING, label: $t('table.navigation.downloading_count', { count: activeCount }) },
+                { id: FILTER_MODE.DOWNLOADING, label: $t('table.navigation.downloading_count', { count: inProgressCount }) },
                 { id: FILTER_MODE.COMPLETED, label: $t('table.navigation.completed_count', { count: completedCount }) },
                 { id: FILTER_MODE.PAUSED, label: $t('table.navigation.paused_count', { count: pausedCount }) }
               ] as f}
@@ -569,8 +571,8 @@
                       {$t('status.paused')} ({pct.toFixed(0)}%)
                     </span>
                   {:else if dl.status === DOWNLOAD_STATUS.QUEUED}
-                    <span class="text-[var(--color-status-queued)] font-medium text-[11px]">
-                      {$t('status.queued')}
+                    <span class="text-[var(--color-status-queued)] font-medium text-[11px] flex items-center gap-1">
+                      <Clock size={12} strokeWidth={2.2} /> {$t('status.queued')}
                     </span>
                   {:else if dl.status === DOWNLOAD_STATUS.ERROR}
                     <span class="text-[var(--color-status-error)] font-medium text-[11px] truncate max-w-[150px]" title={dl.errorMessage || dl.error || $t('status.error')}>
@@ -600,7 +602,13 @@
 
                 <!-- ETA -->
                 <div class="font-mono text-[11px] text-[var(--color-secondary)] truncate">
-                  {dl.status === DOWNLOAD_STATUS.DOWNLOADING && dl.eta > 0 ? formatETA(dl.eta).replace(' remaining', '') : '—'}
+                  {#if dl.status === DOWNLOAD_STATUS.DOWNLOADING && dl.eta > 0}
+                    {formatETA(dl.eta).replace(' remaining', '')}
+                  {:else if dl.status === DOWNLOAD_STATUS.QUEUED}
+                    {$t('table.queued_waiting')}
+                  {:else}
+                    —
+                  {/if}
                 </div>
 
                 <!-- Added date -->
@@ -610,7 +618,7 @@
 
                 <!-- Actions Menu -->
                 <div class="flex items-center justify-end gap-1">
-                  {#if dl.status === DOWNLOAD_STATUS.DOWNLOADING}
+                  {#if dl.status === DOWNLOAD_STATUS.DOWNLOADING || dl.status === DOWNLOAD_STATUS.QUEUED}
                     <button
                       type="button"
                       on:click|stopPropagation={() => onPause(dl.id)}
@@ -781,7 +789,7 @@
             <Folder size={13} class="text-[var(--color-secondary)]" />
             <span>{$t('context_menu.reveal_folder')}</span>
           </button>
-        {:else if contextMenu.download.status === DOWNLOAD_STATUS.DOWNLOADING}
+        {:else if contextMenu.download.status === DOWNLOAD_STATUS.DOWNLOADING || contextMenu.download.status === DOWNLOAD_STATUS.QUEUED}
           <button 
             type="button"
             on:click={() => { onPause(contextMenu.download.id); closeContextMenu(); }}

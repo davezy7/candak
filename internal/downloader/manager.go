@@ -140,6 +140,31 @@ func (m *Manager) SetVisible(visible bool) {
 	m.visible.Store(visible)
 }
 
+// SetMaxConcurrentDownloads dynamically adjusts the simultaneous active download ceiling.
+func (m *Manager) SetMaxConcurrentDownloads(limit int) {
+	if limit <= 0 {
+		limit = 1
+	} else if limit > 10 {
+		limit = 10
+	}
+
+	m.mu.Lock()
+	oldLimit := m.maxConcurrentDownloads
+	m.maxConcurrentDownloads = limit
+	m.mu.Unlock()
+
+	if limit > oldLimit {
+		m.dispatchNextQueued()
+	}
+}
+
+// GetMaxConcurrentDownloads returns the active concurrency ceiling.
+func (m *Manager) GetMaxConcurrentDownloads() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.maxConcurrentDownloads
+}
+
 // IsVisible returns whether the application window is currently visible.
 func (m *Manager) IsVisible() bool {
 	return m.visible.Load()
@@ -701,7 +726,34 @@ func (m *Manager) ResumeDownload(ctx context.Context, id string) error {
 		return err
 	}
 
-	go m.startTask(dl, chunks)
+	m.mu.Lock()
+	if _, exists := m.activeTasks[id]; exists {
+		m.mu.Unlock()
+		return models.ErrAlreadyRunning
+	}
+
+	if len(m.activeTasks) >= m.maxConcurrentDownloads {
+		m.mu.Unlock()
+		dl.Status = models.StatusQueued
+		if err := m.repo.UpdateDownloadStatus(ctx, dl.ID, models.StatusQueued, ""); err != nil {
+			return err
+		}
+		m.emitStatusChange(dl)
+		return nil
+	}
+
+	taskCtx, cancel := context.WithCancel(context.Background())
+	task := &activeTask{
+		ctx:      taskCtx,
+		cancel:   cancel,
+		download: dl,
+		chunks:   chunks,
+		doneChan: make(chan struct{}),
+	}
+	m.activeTasks[dl.ID] = task
+	m.mu.Unlock()
+
+	go m.runTask(task)
 	return nil
 }
 
@@ -713,10 +765,13 @@ func (m *Manager) ResumeUnfinishedDownloads(ctx context.Context) error {
 	}
 
 	for _, dl := range downloads {
-		if dl.Status == models.StatusDownloading || dl.Status == models.StatusQueued || dl.Status == "pending" {
-			_ = m.ResumeDownload(ctx, dl.ID)
+		if dl.Status == models.StatusDownloading || dl.Status == "pending" {
+			dl.Status = models.StatusQueued
+			_ = m.repo.UpdateDownloadStatus(ctx, dl.ID, models.StatusQueued, "")
+			m.emitStatusChange(dl)
 		}
 	}
+	m.dispatchNextQueued()
 	return nil
 }
 

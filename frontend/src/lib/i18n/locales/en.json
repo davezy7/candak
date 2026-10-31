@@ -81,6 +81,7 @@
     "drop_zone": {
       "title": "Click here or Drag-and-drop URL to download"
     },
+    "queued_waiting": "Waiting in queue",
     "footer": {
       "limit_on": "LIMIT ON",
       "limit_off": "LIMIT OFF",
@@ -177,7 +178,16 @@
       "change": "Change",
       "open_folder": "Open folder",
       "open_folder_title": "Open folder in Finder / Explorer",
+      "network_section": "Network & Concurrency",
+      "simultaneous_downloads": "Simultaneous Downloads",
+      "simultaneous_count": "{count} files",
+      "simultaneous_downloads_desc": "Maximum number of files downloading at the same time. Additional files wait in queue.",
+      "simultaneous_single": "Sequential (1)",
+      "simultaneous_balanced": "Balanced (3)",
+      "simultaneous_turbo": "Turbo (5)",
+      "simultaneous_max": "10 (Max)",
       "default_threads": "Default Download Threads",
+      "threads_per_download_desc": "Number of parallel byte-range streams per individual file.",
       "chunks_count": "{count} chunks",
       "thread_single": "1 (Single)",
       "thread_standard": "4 (Standard)",

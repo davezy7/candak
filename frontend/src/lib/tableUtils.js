@@ -26,7 +26,9 @@ export function sortDownloads(list, sortBy = SORT_MODE.NEWEST) {
 export function filterDownloads(list, filter = FILTER_MODE.ALL, searchQuery = '') {
   return list
     .filter(d => {
-      if (filter === FILTER_MODE.DOWNLOADING) return d.status === DOWNLOAD_STATUS.DOWNLOADING;
+      if (filter === FILTER_MODE.DOWNLOADING) {
+        return d.status === DOWNLOAD_STATUS.DOWNLOADING || d.status === DOWNLOAD_STATUS.QUEUED;
+      }
       if (filter === FILTER_MODE.COMPLETED) return d.status === DOWNLOAD_STATUS.COMPLETED;
       if (filter === FILTER_MODE.PAUSED) return d.status === DOWNLOAD_STATUS.PAUSED;
       return true;

@@ -26,14 +26,16 @@ test('filterDownloads filters by status and search substring', () => {
   const items = [
     { id: '1', filename: 'ubuntu-24.04.iso', url: 'https://releases.ubuntu.com', status: 'downloading' },
     { id: '2', filename: 'fedora-40.iso', url: 'https://fedoraproject.org', status: 'completed' },
-    { id: '3', filename: 'archlinux.iso', url: 'https://archlinux.org', status: 'paused' }
+    { id: '3', filename: 'archlinux.iso', url: 'https://archlinux.org', status: 'paused' },
+    { id: '4', filename: 'debian-12.iso', url: 'https://debian.org', status: 'queued' }
   ];
 
   assert.equal(filterDownloads(items, 'completed').length, 1);
-  assert.equal(filterDownloads(items, 'downloading').length, 1);
+  assert.equal(filterDownloads(items, 'downloading').length, 2); // includes downloading and queued
   assert.equal(filterDownloads(items, 'all', 'fedora').length, 1);
   assert.equal(filterDownloads(items, 'all', 'UBUNTU').length, 1);
   assert.equal(filterDownloads(items, 'completed', 'arch').length, 0);
+  assert.equal(filterDownloads(items, 'paused').length, 1);
 });
 
 test('updateSelection handles single click exclusive selection', () => {
